@@ -107,6 +107,7 @@ can also copy `config.json.example` and edit it:
       "name": "openrouter",
       "baseUrl": "https://openrouter.ai/api/v1",
       "key": "sk-or-...",
+      "model": "openai/gpt-4o-mini",
       "type": "external"
     }
   ]

@@ -7,7 +7,7 @@ import {
   Cpu,
 } from "lucide-react";
 import { Markdown } from "@/components/common/Markdown";
-import { cn } from "@/lib/utils";
+import { cn, displayModelName } from "@/lib/utils";
 
 interface ChatMessageProps {
   role: "user" | "assistant" | "tool" | "system";
@@ -129,7 +129,7 @@ export function ChatMessage({
         {model && (
           <div className="mt-2 flex items-center gap-1.5 text-[10.5px] text-muted-foreground/80">
             <Cpu className="h-3 w-3 shrink-0" />
-            <span className="truncate">{model}</span>
+            <span className="truncate">{displayModelName(model)}</span>
           </div>
         )}
       </div>

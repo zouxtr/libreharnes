@@ -473,11 +473,12 @@ async function handle(req, res) {
         messages.unshift({ role: 'system', content: cfg.systemPrompt });
       }
 
-      const persist = (content, reasoning) => {
+      const persist = (content, reasoning, model) => {
         if (!body.chatId) return;
         try {
           const existing = readChat(body.chatId);
           if (!existing) return;
+          const responseModel = model || cfg.model || 'external';
           existing.messages = existing.messages || [];
           const lastUser = [...messages].reverse().find(m => m.role === 'user');
           existing.messages.push({ role: 'user', content: lastUser ? lastUser.content : '' });
@@ -485,10 +486,10 @@ async function handle(req, res) {
             role: 'assistant',
             content,
             reasoning: reasoning || undefined,
-            model: cfg.model || 'external',
+            model: responseModel,
             createdAt: Date.now(),
           });
-          existing.model = cfg.model || 'external';
+          existing.model = responseModel;
           writeChat(existing);
         } catch (e) {
           // non-fatal
@@ -534,11 +535,11 @@ async function handle(req, res) {
               choices: [{ index: 0, delta: { content: result.content } }],
             });
           }
-          persist(finalContent, finalReasoning);
+          persist(finalContent, finalReasoning, result.model);
           writeEvent({
             id: 'chatcmpl-local',
             object: 'chat.completion.chunk',
-            model: cfg.model || 'local',
+            model: result.model || cfg.model || 'local',
             choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
           });
           res.write('data: [DONE]\n\n');
@@ -553,11 +554,11 @@ async function handle(req, res) {
 
       try {
         const result = await chatCompletion(messages, opts);
-        persist(result.content, result.reasoning);
+        persist(result.content, result.reasoning, result.model);
         return send(res, 200, {
           id: 'chatcmpl-local',
           object: 'chat.completion',
-          model: cfg.model || 'local',
+          model: result.model || cfg.model || 'local',
           choices: [{
             index: 0,
             message: {

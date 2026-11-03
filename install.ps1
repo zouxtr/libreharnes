@@ -79,6 +79,7 @@ node "$InstallDir\scripts\launch.js" %*
     $Shortcut.TargetPath = $CmdLauncher
     $Shortcut.WorkingDirectory = $InstallDir
     $Shortcut.Description = "Local AI on your CPU"
+    $Shortcut.WindowStyle = 7
     $Shortcut.Save()
     Write-Step "Added Start Menu shortcut: LibreHarnes"
   } catch {

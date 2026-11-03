@@ -49,7 +49,7 @@ function serverResponding(timeout = 700) {
   return new Promise((resolve) => {
     const req = http.get(URL_BASE + '/api/config', { timeout }, (res) => {
       res.resume();
-      resolve(res.statusCode >= 200 && res.statusCode < 500);
+      resolve(res.statusCode === 200);
     });
     req.on('timeout', () => {
       req.destroy();

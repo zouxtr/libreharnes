@@ -44,6 +44,12 @@ export function shortModelName(p: string | null | undefined): string {
   return b.replace(/\.gguf$/i, "");
 }
 
+/** Pretty label for attribution: GGUF paths become file names, API model IDs stay intact. */
+export function displayModelName(p: string | null | undefined): string {
+  if (!p) return "";
+  return /\.gguf$/i.test(p) ? shortModelName(p) : p;
+}
+
 export function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }

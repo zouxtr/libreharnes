@@ -6,6 +6,8 @@ export interface Endpoint {
   name: string;
   baseUrl: string;
   key: string;
+  /** Model ID sent to an external OpenAI-compatible endpoint. */
+  model?: string;
   type?: string;
 }
 

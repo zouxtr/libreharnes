@@ -201,7 +201,13 @@ export function SettingsPage() {
     const name = `endpoint-${form.endpoints.length + 1}`;
     update("endpoints", [
       ...form.endpoints,
-      { name, baseUrl: "https://openrouter.ai/api", key: "", type: "external" },
+      {
+        name,
+        baseUrl: "https://openrouter.ai/api/v1",
+        key: "",
+        model: "",
+        type: "external",
+      },
     ]);
   };
 
@@ -554,6 +560,14 @@ export function SettingsPage() {
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
+                        <input
+                          value={ep.model || ""}
+                          onChange={(e) =>
+                            updateEndpoint(i, { model: e.target.value })
+                          }
+                          placeholder="Model ID sent to this endpoint (e.g. openai/gpt-4o-mini)"
+                          className="input mt-2 h-8 text-[11.5px]"
+                        />
                       </div>
                     ))}
                   </div>

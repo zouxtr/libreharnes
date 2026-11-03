@@ -40,15 +40,24 @@ export function TopBar({ page, onNewChat, onAbout, onOpenModels }: TopBarProps) 
     theme === "light" ? Sun : theme === "system" ? Monitor : Moon;
   const ThemeIcon = themeIcon;
 
+  const activeEndpoint = config?.endpoints?.find(
+    (e) => e.name === config?.activeEndpoint,
+  );
+  const backendLabel = activeEndpoint
+    ? activeEndpoint.model || activeEndpoint.name
+    : config?.model
+      ? config.model.replace(/^models\//, "").replace(/\.gguf$/i, "")
+      : "";
+
   return (
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-background px-4">
       <div className="flex min-w-0 items-center gap-2">
         <h1 className="text-[13px] font-semibold text-foreground">
           {TITLES[page]}
         </h1>
-        {config?.model && (
+        {backendLabel && (
           <span className="hidden truncate text-[11.5px] text-muted-foreground sm:inline">
-            · {config.model.replace(/^models\//, "").replace(/\.gguf$/i, "")}
+            · {backendLabel}
           </span>
         )}
       </div>

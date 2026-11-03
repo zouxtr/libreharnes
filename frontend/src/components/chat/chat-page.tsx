@@ -137,6 +137,13 @@ export function ChatPage({
   const effort = config?.thinkingEffort || "default";
   const effortLabel =
     EFFORTS.find((e) => e.value === effort)?.label || "Default";
+  const activeEndpoint = config?.endpoints?.find(
+    (e) => e.name === config.activeEndpoint,
+  );
+  const usingExternal = !!activeEndpoint && config?.activeEndpoint !== "local";
+  const activeLabel = usingExternal
+    ? activeEndpoint.model || activeEndpoint.name
+    : shortModelName(config?.model);
 
   const handleSelectModel = async (name: string) => {
     setModelMenu(false);
@@ -180,7 +187,7 @@ export function ChatPage({
   };
 
   const runCompletion = async (history: ChatMessageRecord[]) => {
-    if (!config?.model) {
+    if (!usingExternal && !config?.model) {
       setError("Select a local model first, or download one from Models.");
       setModelMenu(true);
       return;
@@ -195,12 +202,15 @@ export function ChatPage({
     let chatIdToUse = activeId;
     let assistant = "";
     let reasoning = "";
-    const modelName = shortModelName(config.model);
+    let responseModel = "";
+    const modelName = usingExternal
+      ? activeEndpoint?.model || activeEndpoint?.name || "external"
+      : shortModelName(config?.model);
 
     try {
-      if (!config.loaded) {
+      if (!usingExternal && !config?.loaded) {
         setToolLabel("Loading model into memory…");
-        await api.loadModel(shortModelName(config.model));
+        await api.loadModel(shortModelName(config?.model));
         await refreshConfig();
         setToolLabel(null);
       }
@@ -222,7 +232,7 @@ export function ChatPage({
           stream: true,
           chatId: chatIdToUse,
           signal: controller.signal,
-          thinkingEffort: config.thinkingEffort,
+          thinkingEffort: config?.thinkingEffort,
         },
       );
 
@@ -258,6 +268,7 @@ export function ChatPage({
             type?: string;
             name?: string;
             content?: string;
+            model?: string;
             choices?: { delta?: { content?: string } }[];
           };
           try {
@@ -266,6 +277,7 @@ export function ChatPage({
             continue;
           }
           if (json.error) throw new Error(json.error);
+          if (json.model) responseModel = json.model;
           if (json.type === "tool") {
             setToolLabel(`Running ${json.name || "tool"}…`);
             continue;
@@ -307,17 +319,18 @@ export function ChatPage({
 
       if (!assistant) {
         assistant = "(The model returned an empty response.)";
-        setMessages((prev) => {
-          const copy = [...prev];
-          copy[copy.length - 1] = {
-            role: "assistant",
-            content: assistant,
-            reasoning: reasoning || undefined,
-            model: modelName,
-          };
-          return copy;
-        });
       }
+      const finalModel = responseModel || modelName;
+      setMessages((prev) => {
+        const copy = [...prev];
+        copy[copy.length - 1] = {
+          role: "assistant",
+          content: assistant,
+          reasoning: reasoning || undefined,
+          model: finalModel,
+        };
+        return copy;
+      });
 
       await api.updateChat(chatIdToUse, {
         title,
@@ -327,7 +340,7 @@ export function ChatPage({
             role: "assistant",
             content: assistant,
             reasoning: reasoning || undefined,
-            model: modelName,
+            model: finalModel,
             createdAt: Date.now(),
           },
         ],
@@ -435,13 +448,15 @@ export function ChatPage({
               <span
                 className={cn(
                   "h-1.5 w-1.5 shrink-0 rounded-full",
-                  config?.loaded ? "bg-success" : "bg-muted-foreground/40",
+                  config?.loaded || usingExternal
+                    ? "bg-success"
+                    : "bg-muted-foreground/40",
                 )}
               />
               <span className="truncate">
                 {loadingModel && loadingModel !== "__unload__"
                   ? "Loading…"
-                  : shortModelName(config?.model) || "Select model"}
+                  : activeLabel || "Select model"}
               </span>
               <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
             </button>
@@ -584,11 +599,13 @@ export function ChatPage({
                 How can I help you today?
               </h2>
               <p className="mt-1 max-w-md text-[12.5px] leading-relaxed text-muted-foreground">
-                {config?.model
-                  ? `${shortModelName(config.model)} is ${config.loaded ? "loaded and ready" : "selected — it will load on your first message"}.`
-                  : "Download a GGUF model from Models, then start chatting locally on your CPU."}
+                {usingExternal
+                  ? `Using ${activeEndpoint.name}${activeEndpoint.model ? ` · ${activeEndpoint.model}` : ""}. Messages are sent to that OpenAI-compatible endpoint.`
+                  : config?.model
+                    ? `${shortModelName(config.model)} is ${config.loaded ? "loaded and ready" : "selected — it will load on your first message"}.`
+                    : "Download a GGUF model from Models, then start chatting locally on your CPU."}
               </p>
-              {!config?.model && (
+              {!usingExternal && !config?.model && (
                 <button
                   type="button"
                   onClick={onOpenModels}
@@ -662,7 +679,7 @@ export function ChatPage({
               onKeyDown={onKeyDown}
               rows={1}
               placeholder={
-                config?.model
+                usingExternal || config?.model
                   ? "Send a message…"
                   : "Select or download a model to start…"
               }
@@ -673,7 +690,7 @@ export function ChatPage({
                 <span
                   className={cn(
                     "h-1.5 w-1.5 shrink-0 rounded-full",
-                    config?.loaded
+                    config?.loaded || usingExternal
                       ? "bg-success"
                       : config?.model
                         ? "bg-warning"
@@ -681,7 +698,7 @@ export function ChatPage({
                   )}
                 />
                 <span className="truncate">
-                  {shortModelName(config?.model) || "No model"}
+                  {activeLabel || "No model"}
                 </span>
                 <span className="opacity-50">·</span>
                 <span className="shrink-0">{effortLabel}</span>

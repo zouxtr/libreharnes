@@ -14,12 +14,14 @@
       "name": "openrouter",
       "baseUrl": "https://openrouter.ai/api/v1",
       "key": "sk-or-...your-key...",
+      "model": "openai/gpt-4o-mini",
       "type": "external"
     },
     {
       "name": "local-llama",
       "baseUrl": "http://127.0.0.1:8080",
       "key": "",
+      "model": "local-model",
       "type": "external"
     }
   ]

@@ -236,6 +236,7 @@ function resolveTarget(cfg) {
       url: 'http://127.0.0.1:' + port + '/v1/chat/completions',
       key: cfg.localApiKey,
       modelPath,
+      model: cfg.model || 'local',
     };
   }
   const base = getActiveBase(cfg);
@@ -243,13 +244,19 @@ function resolveTarget(cfg) {
     throw new Error('No active endpoint configured. Add one in Settings or switch to a local model.');
   }
   const upstream = base.baseUrl.endsWith('/') ? base.baseUrl : base.baseUrl + '/';
-  return { isLocal: false, url: upstream + 'v1/chat/completions', key: base.key };
+  return {
+    isLocal: false,
+    url: upstream + 'v1/chat/completions',
+    key: base.key,
+    model: base.model || cfg.model || 'local',
+    endpointName: base.name,
+  };
 }
 
-function buildBody(cfg, messages, opts, stream) {
+function buildBody(cfg, messages, opts, stream, modelOverride) {
   const tools = enabledTools(cfg);
   const body = {
-    model: cfg.model || 'local',
+    model: modelOverride || cfg.model || 'local',
     messages,
     temperature: opts.temperature ?? cfg.temperature ?? 0.7,
     top_p: opts.topP ?? cfg.topP ?? 0.95,
@@ -298,7 +305,7 @@ async function chatCompletion(messages, opts = {}) {
 
   while (toolRound < maxToolRounds) {
     toolRound++;
-    const body = buildBody(cfg, current, opts, false);
+    const body = buildBody(cfg, current, opts, false, target.model);
     const res = await fetch(target.url, {
       method: 'POST',
       headers: authHeaders(target.key),
@@ -354,10 +361,11 @@ async function streamChatCompletion(messages, opts = {}, onEvent = () => {}) {
   const maxToolRounds = 6;
   let fullContent = '';
   let fullReasoning = '';
+  let responseModel = '';
 
   while (toolRound < maxToolRounds) {
     toolRound++;
-    const body = buildBody(cfg, current, opts, true);
+    const body = buildBody(cfg, current, opts, true, target.model);
     const res = await fetch(target.url, {
       method: 'POST',
       headers: authHeaders(target.key),
@@ -389,6 +397,7 @@ async function streamChatCompletion(messages, opts = {}, onEvent = () => {}) {
           if (!payload || payload === '[DONE]') continue;
           let json;
           try { json = JSON.parse(payload); } catch (e) { continue; }
+          if (json.model) responseModel = json.model;
           const choice = (json.choices || [])[0] || {};
           const delta = choice.delta || {};
           if (delta.content) {
@@ -424,7 +433,7 @@ async function streamChatCompletion(messages, opts = {}, onEvent = () => {}) {
       return {
         content: fullContent,
         reasoning: fullReasoning,
-        model: cfg.model || 'local',
+        model: responseModel || cfg.model || 'local',
         usage: {},
       };
     }
@@ -449,7 +458,7 @@ async function streamChatCompletion(messages, opts = {}, onEvent = () => {}) {
   return {
     content: fullContent,
     reasoning: fullReasoning,
-    model: cfg.model || 'local',
+    model: responseModel || cfg.model || 'local',
     usage: {},
   };
 }

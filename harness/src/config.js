@@ -66,6 +66,7 @@ function load() {
           name: e.name || 'external',
           baseUrl: e.baseUrl || '',
           key: e.key || '',
+          model: e.model || '',
           type: e.type || 'external',
         }));
       }
