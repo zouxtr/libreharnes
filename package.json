@@ -13,7 +13,6 @@
     "frontend/dist/",
     "web/",
     "scripts/",
-    "tui/",
     "install.sh",
     "install.ps1",
     "README.md",
