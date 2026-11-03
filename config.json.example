@@ -1,0 +1,26 @@
+{
+  "port": 3030,
+  "host": "127.0.0.1",
+  "llamaServer": "llama.cpp/build/bin/llama-server",
+  "model": "",
+  "contextSize": 2048,
+  "threads": 4,
+  "activeEndpoint": "local",
+  "localApiKey": "",
+  "temperature": 0.7,
+  "topP": 0.95,
+  "endpoints": [
+    {
+      "name": "openrouter",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "key": "sk-or-...your-key...",
+      "type": "external"
+    },
+    {
+      "name": "local-llama",
+      "baseUrl": "http://127.0.0.1:8080",
+      "key": "",
+      "type": "external"
+    }
+  ]
+}

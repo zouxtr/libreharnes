@@ -1,0 +1,44 @@
+{
+  "name": "libreharnes",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Lightweight, CPU-first local AI harness with a desktop launcher, web UI, and OpenAI-compatible API.",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "libreharnes": "scripts/launch.js"
+  },
+  "files": [
+    "harness/",
+    "frontend/dist/",
+    "web/",
+    "scripts/",
+    "tui/",
+    "install.sh",
+    "install.ps1",
+    "README.md",
+    "config.json.example"
+  ],
+  "scripts": {
+    "start": "node scripts/launch.js",
+    "server": "node harness/src/index.js",
+    "launcher": "node scripts/launch.js --browser",
+    "setup:llama": "node scripts/setup-llama.js",
+    "build": "npm --prefix frontend run build",
+    "build:llama": "bash scripts/build-llama.sh"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zouxtr/libreharnes.git"
+  },
+  "keywords": [
+    "llama.cpp",
+    "gguf",
+    "local-ai",
+    "cpu",
+    "openai-compatible"
+  ]
+}

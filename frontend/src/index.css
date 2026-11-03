@@ -1,0 +1,261 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 12%;
+
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 42%;
+
+    --accent: 0 0% 95%;
+    --accent-foreground: 0 0% 9%;
+
+    --destructive: 0 65% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 60% 36%;
+    --warning: 38 85% 42%;
+
+    --border: 0 0% 89%;
+    --input: 0 0% 89%;
+    --ring: 0 0% 55%;
+
+    --sidebar: 0 0% 97%;
+    --sidebar-foreground: 0 0% 12%;
+
+    --radius: 8px;
+  }
+
+  .dark {
+    --background: 0 0% 10%;
+    --foreground: 0 0% 91%;
+
+    --card: 0 0% 12.5%;
+    --card-foreground: 0 0% 91%;
+
+    --popover: 0 0% 14%;
+    --popover-foreground: 0 0% 93%;
+
+    --primary: 0 0% 91%;
+    --primary-foreground: 0 0% 10%;
+
+    --secondary: 0 0% 16%;
+    --secondary-foreground: 0 0% 91%;
+
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 60%;
+
+    --accent: 0 0% 17%;
+    --accent-foreground: 0 0% 95%;
+
+    --destructive: 0 62% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 55% 48%;
+    --warning: 38 85% 55%;
+
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 0 0% 38%;
+
+    --sidebar: 0 0% 7.5%;
+    --sidebar-foreground: 0 0% 88%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto,
+      Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  ::selection {
+    background: hsl(var(--foreground) / 0.16);
+  }
+
+  :focus-visible {
+    outline: none;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--foreground) / 0.18) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--foreground) / 0.16);
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--foreground) / 0.26);
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-[13px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .btn-primary {
+    @apply inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .btn-secondary {
+    @apply inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-secondary text-[13px] font-medium text-secondary-foreground transition-colors hover:bg-secondary/70 disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .btn-outline {
+    @apply inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-transparent text-[13px] font-medium text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .btn-ghost {
+    @apply inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .btn-danger {
+    @apply inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-destructive text-[13px] font-medium text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .btn-sm {
+    @apply h-7 px-2.5 text-[12px];
+  }
+
+  .btn-md {
+    @apply h-8 px-3;
+  }
+
+  .btn-lg {
+    @apply h-9 px-4;
+  }
+
+  .btn-icon {
+    @apply h-8 w-8 shrink-0 p-0;
+  }
+
+  .input {
+    @apply flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground/70 focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .textarea {
+    @apply flex w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground/70 focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .label {
+    @apply text-[12px] font-medium text-foreground;
+  }
+
+  .hint {
+    @apply text-[11.5px] leading-relaxed text-muted-foreground;
+  }
+
+  .card {
+    @apply rounded-lg border border-border bg-card text-card-foreground;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground;
+  }
+
+  .badge-success {
+    @apply inline-flex items-center gap-1 rounded-full border border-transparent bg-success/10 px-2 py-0.5 text-[10.5px] font-medium text-success;
+  }
+
+  .badge-warning {
+    @apply inline-flex items-center gap-1 rounded-full border border-transparent bg-warning/10 px-2 py-0.5 text-[10.5px] font-medium text-warning;
+  }
+
+  .badge-danger {
+    @apply inline-flex items-center gap-1 rounded-full border border-transparent bg-destructive/10 px-2 py-0.5 text-[10.5px] font-medium text-destructive;
+  }
+
+  .badge-solid {
+    @apply inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-[10.5px] font-medium text-secondary-foreground;
+  }
+
+  .menu {
+    @apply z-50 min-w-[180px] overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg shadow-black/20;
+  }
+
+  .menu-item {
+    @apply flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-40;
+  }
+
+  .menu-sep {
+    @apply my-1 h-px bg-border;
+  }
+
+  .row {
+    @apply flex items-center gap-3 rounded-lg border border-border bg-card px-3.5 py-3 transition-colors;
+  }
+
+  .row-hover {
+    @apply hover:border-foreground/20;
+  }
+
+  .kbd {
+    @apply inline-flex h-5 min-w-5 items-center justify-center rounded border border-border bg-secondary px-1 font-mono text-[10px] text-muted-foreground;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}

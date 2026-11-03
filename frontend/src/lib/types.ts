@@ -1,0 +1,134 @@
+export type Page = "chat" | "models" | "tools" | "settings";
+export type ThemePref = "light" | "dark" | "system";
+export type ThinkingEffort = "default" | "low" | "high" | "disabled";
+
+export interface Endpoint {
+  name: string;
+  baseUrl: string;
+  key: string;
+  type?: string;
+}
+
+export interface Config {
+  port: number;
+  host: string;
+  model: string;
+  contextSize: number;
+  threads: number;
+  llamaPort: number;
+  activeEndpoint: string;
+  endpoints: Endpoint[];
+  localApiKey: boolean;
+  hasLocalModel: boolean;
+  llamaServer: string;
+  temperature: number;
+  topP: number;
+  maxTokens: number;
+  thinkingEffort: ThinkingEffort;
+  toolsEnabled: Record<string, boolean>;
+  systemPrompt: string;
+  loaded: boolean;
+  llamaState: "stopped" | "starting" | "ready" | "error";
+  llamaError: string | null;
+}
+
+export interface ModelInfo {
+  name: string;
+  size: number;
+  sizeStr: string;
+  active: boolean;
+  loaded: boolean;
+}
+
+export interface ChatSummary {
+  id: string;
+  title: string;
+  updatedAt: number;
+  createdAt: number;
+  messageCount: number;
+  model: string;
+}
+
+export interface ChatMessageRecord {
+  role: "user" | "assistant" | "tool" | "system";
+  content: string;
+  /** Extended reasoning / thinking text emitted by the model. */
+  reasoning?: string;
+  /** Name of the model that produced this message. */
+  model?: string;
+  createdAt?: number;
+  tool_calls?: unknown;
+  tool_call_id?: string;
+  name?: string;
+}
+
+export interface Chat {
+  id: string;
+  title: string;
+  messages: ChatMessageRecord[];
+  model: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface HfResult {
+  id: string;
+  author: string;
+  likes: number;
+  downloads: number;
+  score: number;
+  tags: string[];
+  description: string;
+}
+
+export interface HfFile {
+  filename: string;
+  size: number;
+}
+
+export interface DownloadJob {
+  id: string;
+  repo: string;
+  filename: string;
+  status: "downloading" | "paused" | "done" | "error" | "cancelled";
+  received: number;
+  total: number;
+  progress: number;
+  error: string | null;
+  startedAt: number;
+  finishedAt: number | null;
+  resumable?: boolean;
+}
+
+export interface ToolInfo {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  enabled: boolean;
+}
+
+export interface SystemInfo {
+  cpu: number;
+  cores: number;
+  cpuModel: string;
+  ramUsed: number;
+  ramTotal: number;
+  ramPercent: number;
+  platform: string;
+  arch: string;
+  uptime: number;
+  load: number;
+}
+
+export interface LlamaStatus {
+  state: "stopped" | "starting" | "ready" | "error";
+  model: string | null;
+  error: string | null;
+  loaded: boolean;
+}
+
+export interface ToastItem {
+  id: number;
+  message: string;
+  kind: "info" | "success" | "error";
+}

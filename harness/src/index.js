@@ -1,0 +1,618 @@
+#!/usr/bin/env node
+'use strict';
+
+const http = require('http');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const url = require('url');
+
+const {
+  ROOT,
+  load,
+  save,
+  resolveModelPath,
+  MODELS_DIR,
+  listChats,
+  readChat,
+  writeChat,
+  newChatId,
+} = require('./config');
+const {
+  chatCompletion,
+  streamChatCompletion,
+  stopLlama,
+  startLlama,
+  llamaStatus,
+  executeTool,
+  TOOL_SCHEMA,
+} = require('./proxy');
+const {
+  searchModels,
+  listGgufFiles,
+  startDownload,
+  downloadGguf,
+  getJob,
+  listJobs,
+  cancelJob,
+  resumeJob,
+  removeJob,
+  formatSize,
+} = require('./hf');
+
+let cfg = load();
+
+const WEB_ROOT = path.join(ROOT, 'web');
+const DIST_ROOT = path.join(ROOT, 'frontend', 'dist');
+const PORT = cfg.port || 3030;
+const HOST = cfg.host || '127.0.0.1';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function send(res, code, obj, type = 'application/json') {
+  const body = typeof obj === 'string' ? obj : JSON.stringify(obj);
+  res.writeHead(code, {
+    'Content-Type': type,
+    'Content-Length': Buffer.byteLength(body),
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.end(body);
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', c => chunks.push(c));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+async function readJson(req) {
+  const raw = await readBody(req);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    throw new Error('Invalid JSON body');
+  }
+}
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.map': 'application/json',
+};
+
+function serveFile(res, root, pathname) {
+  const safePath = path.normalize(pathname).replace(/^(\.\.[/\\])+/, '');
+  const filePath = path.join(root, safePath);
+  if (!filePath.startsWith(root)) return send(res, 403, { error: 'forbidden' });
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return false;
+  const ext = path.extname(filePath).toLowerCase();
+  res.writeHead(200, {
+    'Content-Type': MIME[ext] || 'application/octet-stream',
+    'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable',
+  });
+  fs.createReadStream(filePath).pipe(res);
+  return true;
+}
+
+function serveStatic(req, res, pathname) {
+  // Prefer the built React app, fall back to the legacy vanilla UI.
+  const root = fs.existsSync(DIST_ROOT) ? DIST_ROOT : WEB_ROOT;
+  const rel = pathname === '/' ? '/index.html' : pathname;
+  if (serveFile(res, root, rel)) return true;
+  // SPA fallback for client-side routes.
+  if (fs.existsSync(path.join(root, 'index.html'))) {
+    return serveFile(res, root, '/index.html');
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// System stats
+// ---------------------------------------------------------------------------
+
+let prevCpuTimes = os.cpus().map(c => c.times);
+
+function cpuPercent() {
+  const current = os.cpus().map(c => c.times);
+  let idle = 0;
+  let total = 0;
+  for (let i = 0; i < current.length; i++) {
+    const prev = prevCpuTimes[i] || current[i];
+    const cur = current[i];
+    idle += cur.idle - prev.idle;
+    total +=
+      (cur.user - prev.user) +
+      (cur.nice - prev.nice) +
+      (cur.sys - prev.sys) +
+      (cur.idle - prev.idle) +
+      (cur.irq - prev.irq);
+  }
+  prevCpuTimes = current;
+  if (total <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((1 - idle / total) * 100)));
+}
+
+function systemInfo() {
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = totalMem - freeMem;
+  return {
+    cpu: cpuPercent(),
+    cores: os.cpus().length,
+    cpuModel: (os.cpus()[0] && os.cpus()[0].model) || 'CPU',
+    ramUsed: usedMem,
+    ramTotal: totalMem,
+    ramPercent: Math.round((usedMem / totalMem) * 100),
+    platform: os.platform(),
+    arch: os.arch(),
+    uptime: Math.round(os.uptime()),
+    load: os.loadavg()[0],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// API
+// ---------------------------------------------------------------------------
+
+function configResponse() {
+  const status = llamaStatus();
+  return {
+    port: cfg.port,
+    host: cfg.host,
+    model: cfg.model,
+    contextSize: cfg.contextSize,
+    threads: cfg.threads,
+    llamaPort: cfg.llamaPort,
+    activeEndpoint: cfg.activeEndpoint,
+    endpoints: cfg.endpoints || [],
+    localApiKey: !!cfg.localApiKey,
+    hasLocalModel: Boolean(cfg.model && fs.existsSync(resolveModelPath(cfg.model))),
+    llamaServer: cfg.llamaServer,
+    temperature: cfg.temperature,
+    topP: cfg.topP,
+    maxTokens: cfg.maxTokens,
+    thinkingEffort: cfg.thinkingEffort,
+    toolsEnabled: cfg.toolsEnabled,
+    systemPrompt: cfg.systemPrompt || '',
+    loaded: status.state === 'ready',
+    llamaState: status.state,
+    llamaError: status.error,
+  };
+}
+
+async function handle(req, res) {
+  const parsed = url.parse(req.url, true);
+  const pathname = parsed.pathname || '/';
+
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') return send(res, 204, '');
+
+  // ---- Launcher window ----
+  if (req.method === 'GET' && (pathname === '/launcher' || pathname === '/launcher/')) {
+    if (serveFile(res, WEB_ROOT, '/launcher.html')) return;
+    return send(res, 404, { error: 'launcher page not found' });
+  }
+
+  // ---- Static UI ----
+  if (req.method === 'GET' && !pathname.startsWith('/api') && !pathname.startsWith('/v1')) {
+    if (serveStatic(req, res, pathname)) return;
+  }
+
+  try {
+    // ---- Config ----
+    if (pathname === '/api/config' && req.method === 'GET') {
+      return send(res, 200, configResponse());
+    }
+
+    if (pathname === '/api/config' && req.method === 'POST') {
+      const body = await readJson(req);
+      const oldModel = cfg.model;
+      const oldCtx = cfg.contextSize;
+      const oldThreads = cfg.threads;
+      const oldPort = cfg.llamaPort;
+      cfg = save({ ...cfg, ...body });
+      if (
+        cfg.model !== oldModel ||
+        cfg.contextSize !== oldCtx ||
+        cfg.threads !== oldThreads ||
+        cfg.llamaPort !== oldPort
+      ) {
+        stopLlama();
+      }
+      return send(res, 200, { ok: true, config: configResponse() });
+    }
+
+    // ---- System / status ----
+    if (pathname === '/api/system' && req.method === 'GET') {
+      return send(res, 200, systemInfo());
+    }
+
+    if (pathname === '/api/status' && req.method === 'GET') {
+      return send(res, 200, { ...llamaStatus(), loaded: llamaStatus().state === 'ready', config: configResponse() });
+    }
+
+    // ---- Chats ----
+    if (pathname === '/api/chats' && req.method === 'GET') {
+      return send(res, 200, { chats: listChats() });
+    }
+
+    if (pathname === '/api/chats' && req.method === 'POST') {
+      const body = await readJson(req);
+      const chat = {
+        id: body.id || newChatId(),
+        title: body.title || 'New chat',
+        messages: body.messages || [],
+        model: body.model || cfg.model || '',
+        createdAt: body.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      };
+      writeChat(chat);
+      return send(res, 200, { ok: true, chat });
+    }
+
+    const chatIdMatch = pathname.match(/^\/api\/chats\/([^/]+)$/);
+    if (chatIdMatch) {
+      const id = chatIdMatch[1];
+      if (req.method === 'GET') {
+        const chat = readChat(id);
+        if (!chat) return send(res, 404, { error: 'chat not found' });
+        return send(res, 200, { chat });
+      }
+      if (req.method === 'PUT' || req.method === 'POST') {
+        const body = await readJson(req);
+        const existing = readChat(id);
+        if (!existing) return send(res, 404, { error: 'chat not found' });
+        const updated = { ...existing, ...body, id };
+        writeChat(updated);
+        return send(res, 200, { ok: true, chat: updated });
+      }
+      if (req.method === 'DELETE') {
+        const p = path.join(ROOT, 'chats', id + '.json');
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+        return send(res, 200, { ok: true });
+      }
+    }
+
+    // ---- Models ----
+    if (pathname === '/api/models' && req.method === 'GET') {
+      const status = llamaStatus();
+      const loadedPath = status.model;
+      const files = [];
+      if (fs.existsSync(MODELS_DIR)) {
+        for (const f of fs.readdirSync(MODELS_DIR)) {
+          const full = path.join(MODELS_DIR, f);
+          if (fs.statSync(full).isFile() && /\.gguf$/i.test(f)) {
+            const size = fs.statSync(full).size;
+            files.push({
+              name: f,
+              size,
+              sizeStr: formatSize(size),
+              active: cfg.model === 'models/' + f,
+              loaded: status.state === 'ready' && loadedPath === full,
+            });
+          }
+        }
+      }
+      files.sort((a, b) => a.name.localeCompare(b.name));
+      return send(res, 200, {
+        models: files,
+        active: cfg.model,
+        llamaState: status.state,
+        llamaError: status.error,
+      });
+    }
+
+    if (pathname === '/api/models/load' && req.method === 'POST') {
+      const body = await readJson(req);
+      const name = body.name || body.model;
+      if (!name) return send(res, 400, { error: 'name required' });
+      const modelPath = path.isAbsolute(name) ? name : resolveModelPath('models/' + name);
+      try {
+        const status = await startLlama(modelPath);
+        cfg = save({ ...cfg, model: 'models/' + path.basename(modelPath), activeEndpoint: 'local' });
+        return send(res, 200, { ok: true, status, config: configResponse() });
+      } catch (e) {
+        return send(res, 500, { ok: false, error: e.message, status: llamaStatus() });
+      }
+    }
+
+    if (pathname === '/api/models/unload' && req.method === 'POST') {
+      stopLlama();
+      return send(res, 200, { ok: true, status: llamaStatus() });
+    }
+
+    if (pathname === '/api/models/delete' && req.method === 'POST') {
+      const body = await readJson(req);
+      const name = body.name;
+      if (!name) return send(res, 400, { error: 'name required' });
+      const full = path.join(MODELS_DIR, path.basename(name));
+      if (!full.startsWith(MODELS_DIR) || !fs.existsSync(full)) {
+        return send(res, 404, { error: 'model not found' });
+      }
+      const status = llamaStatus();
+      if (status.state === 'ready' && status.model === full) stopLlama();
+      fs.unlinkSync(full);
+      if (cfg.model === 'models/' + path.basename(name)) {
+        cfg = save({ ...cfg, model: '' });
+      }
+      return send(res, 200, { ok: true });
+    }
+
+    // ---- Hugging Face ----
+    if (pathname === '/api/hf/search' && req.method === 'GET') {
+      const q = parsed.query;
+      try {
+        const results = await searchModels({
+          query: q.query || 'gguf',
+          limit: parseInt(q.limit) || 20,
+          author: q.author,
+        });
+        return send(res, 200, { results });
+      } catch (e) {
+        return send(res, 500, { error: e.message });
+      }
+    }
+
+    if (pathname === '/api/hf/files' && req.method === 'GET') {
+      const { repo } = parsed.query;
+      if (!repo) return send(res, 400, { error: 'repo required' });
+      try {
+        const files = await listGgufFiles(repo);
+        return send(res, 200, { repo, files });
+      } catch (e) {
+        return send(res, 500, { error: e.message });
+      }
+    }
+
+    if (pathname === '/api/hf/download' && req.method === 'POST') {
+      const body = await readJson(req);
+      const { repo, filename, sync } = body;
+      if (!repo || !filename) return send(res, 400, { error: 'repo and filename required' });
+      if (sync) {
+        try {
+          const result = await downloadGguf(repo, filename);
+          cfg = save({ ...cfg, model: 'models/' + filename, activeEndpoint: 'local' });
+          return send(res, 200, { ok: true, path: result.path, size: result.size });
+        } catch (e) {
+          return send(res, 500, { error: e.message });
+        }
+      }
+      const job = startDownload(repo, filename);
+      return send(res, 200, { ok: true, job });
+    }
+
+    if (pathname === '/api/hf/jobs' && req.method === 'GET') {
+      return send(res, 200, { jobs: listJobs() });
+    }
+
+    const jobMatch = pathname.match(
+      /^\/api\/hf\/jobs\/([^/]+)(\/cancel|\/resume|\/remove)?$/,
+    );
+    if (jobMatch) {
+      const id = jobMatch[1];
+      const action = jobMatch[2];
+      if (action && req.method === 'POST') {
+        if (action === '/cancel') return send(res, 200, { ok: cancelJob(id) });
+        if (action === '/resume') {
+          const job = resumeJob(id);
+          if (!job) return send(res, 404, { error: 'job not found' });
+          return send(res, 200, { ok: true, job });
+        }
+        if (action === '/remove') return send(res, 200, { ok: removeJob(id) });
+      }
+      if (req.method === 'GET') {
+        const job = getJob(id);
+        if (!job) return send(res, 404, { error: 'job not found' });
+        return send(res, 200, { job });
+      }
+    }
+
+    // ---- Tools ----
+    if (pathname === '/api/tools' && req.method === 'GET') {
+      const tools = TOOL_SCHEMA.map(t => ({
+        ...t.function,
+        enabled: (cfg.toolsEnabled || {})[t.function.name] !== false,
+      }));
+      return send(res, 200, { tools });
+    }
+
+    if (pathname === '/api/tools' && req.method === 'POST') {
+      const body = await readJson(req);
+      if (body.toolsEnabled && typeof body.toolsEnabled === 'object') {
+        cfg = save({ ...cfg, toolsEnabled: { ...cfg.toolsEnabled, ...body.toolsEnabled } });
+      } else if (body.name) {
+        cfg = save({
+          ...cfg,
+          toolsEnabled: { ...cfg.toolsEnabled, [body.name]: !!body.enabled },
+        });
+      }
+      return send(res, 200, { ok: true, toolsEnabled: cfg.toolsEnabled });
+    }
+
+    if (pathname === '/api/tools/test' && req.method === 'POST') {
+      const body = await readJson(req);
+      if (!body.name) return send(res, 400, { error: 'name required' });
+      try {
+        const result = await executeTool(body.name, body.args || {});
+        return send(res, 200, { ok: true, result });
+      } catch (e) {
+        return send(res, 500, { ok: false, error: e.message });
+      }
+    }
+
+    // ---- OpenAI-compatible chat ----
+    if (pathname === '/v1/chat/completions' && req.method === 'POST') {
+      const body = await readJson(req);
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const opts = {
+        temperature: body.temperature,
+        topP: body.top_p,
+        maxTokens: body.max_tokens,
+        thinkingEffort: body.thinking_effort || body.reasoning_effort,
+      };
+      if (cfg.systemPrompt && !messages.some(m => m.role === 'system')) {
+        messages.unshift({ role: 'system', content: cfg.systemPrompt });
+      }
+
+      const persist = (content, reasoning) => {
+        if (!body.chatId) return;
+        try {
+          const existing = readChat(body.chatId);
+          if (!existing) return;
+          existing.messages = existing.messages || [];
+          const lastUser = [...messages].reverse().find(m => m.role === 'user');
+          existing.messages.push({ role: 'user', content: lastUser ? lastUser.content : '' });
+          existing.messages.push({
+            role: 'assistant',
+            content,
+            reasoning: reasoning || undefined,
+            model: cfg.model || 'external',
+            createdAt: Date.now(),
+          });
+          existing.model = cfg.model || 'external';
+          writeChat(existing);
+        } catch (e) {
+          // non-fatal
+        }
+      };
+
+      if (body.stream) {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no',
+          'Access-Control-Allow-Origin': '*',
+        });
+        const writeEvent = obj => {
+          try { res.write('data: ' + JSON.stringify(obj) + '\n\n'); } catch (e) { /* client gone */ }
+        };
+        let finalContent = '';
+        let finalReasoning = '';
+        try {
+          const result = await streamChatCompletion(messages, opts, evt => {
+            if (evt.type === 'delta') {
+              finalContent += evt.content;
+              writeEvent({
+                id: 'chatcmpl-local',
+                object: 'chat.completion.chunk',
+                choices: [{ index: 0, delta: { content: evt.content } }],
+              });
+            } else if (evt.type === 'reasoning') {
+              finalReasoning += evt.content;
+              writeEvent({ type: 'reasoning', content: evt.content });
+            } else if (evt.type === 'tool') {
+              writeEvent({ type: 'tool', name: evt.name, args: evt.args });
+            } else if (evt.type === 'tool_result') {
+              writeEvent({ type: 'tool_result', name: evt.name });
+            }
+          });
+          if (!finalContent && result.content) {
+            finalContent = result.content;
+            writeEvent({
+              id: 'chatcmpl-local',
+              object: 'chat.completion.chunk',
+              choices: [{ index: 0, delta: { content: result.content } }],
+            });
+          }
+          persist(finalContent, finalReasoning);
+          writeEvent({
+            id: 'chatcmpl-local',
+            object: 'chat.completion.chunk',
+            model: cfg.model || 'local',
+            choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          });
+          res.write('data: [DONE]\n\n');
+          res.end();
+        } catch (e) {
+          writeEvent({ error: e.message });
+          res.write('data: [DONE]\n\n');
+          res.end();
+        }
+        return;
+      }
+
+      try {
+        const result = await chatCompletion(messages, opts);
+        persist(result.content, result.reasoning);
+        return send(res, 200, {
+          id: 'chatcmpl-local',
+          object: 'chat.completion',
+          model: cfg.model || 'local',
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: result.content,
+              reasoning_content: result.reasoning || undefined,
+            },
+            finish_reason: 'stop',
+          }],
+          usage: result.usage || {},
+        });
+      } catch (e) {
+        return send(res, 500, { error: e.message });
+      }
+    }
+
+    if (pathname === '/api/stop' && req.method === 'POST') {
+      stopLlama();
+      return send(res, 200, { ok: true });
+    }
+
+    if (pathname === '/api/shutdown' && req.method === 'POST') {
+      send(res, 200, { ok: true });
+      setTimeout(() => {
+        stopLlama();
+        server.close(() => process.exit(0));
+        setTimeout(() => process.exit(0), 800);
+      }, 50);
+      return;
+    }
+
+    return send(res, 404, { error: 'route not found' });
+  } catch (err) {
+    console.error('[api]', err);
+    if (!res.headersSent) return send(res, 500, { error: err.message || String(err) });
+    try { res.end(); } catch (e) { /* ignore */ }
+  }
+}
+
+const server = http.createServer(handle);
+
+server.listen(PORT, HOST, () => {
+  console.log('LibreHarnes listening on http://' + HOST + ':' + PORT);
+  console.log('  Web UI:   http://' + HOST + ':' + PORT + '/');
+  console.log('  API:      http://' + HOST + ':' + PORT + '/v1/chat/completions');
+  console.log('  Config:   http://' + HOST + ':' + PORT + '/api/config');
+  console.log('  Models:   ' + MODELS_DIR);
+  console.log('  Chats:    ' + path.join(ROOT, 'chats'));
+});
+
+process.on('SIGINT', () => {
+  stopLlama();
+  server.close(() => process.exit(0));
+});
+process.on('SIGTERM', () => {
+  stopLlama();
+  server.close(() => process.exit(0));
+});
