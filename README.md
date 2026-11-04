@@ -82,8 +82,10 @@ Use the paperclip button in the composer to attach files. Text files are sent
 to the model inline; other files are saved under `sandbox/uploads/` and their
 path is shared with the model. Switching pages does not interrupt an in-flight
 response or clear the composer — the chat stays mounted in the background.
-Every assistant message shows which model wrote it. You can switch models,
-choose thinking effort, regenerate, and clear the conversation.
+Every assistant message shows which model wrote it, plus generation speed
+(tokens per second), token count, and generation time when the backend reports
+them. You can switch models, choose thinking effort, regenerate, and clear the
+conversation.
 
 ### Models
 - **Local** — models on disk; load, unload, delete.

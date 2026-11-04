@@ -20,6 +20,7 @@ import { api } from "@/lib/api";
 import type {
   ChatAttachment,
   ChatMessageRecord,
+  ChatStats,
   ChatToolEvent,
   ThinkingEffort,
 } from "@/lib/types";
@@ -290,6 +291,7 @@ export function ChatPage({
     let reasoning = "";
     let responseModel = "";
     let toolEvents: ChatToolEvent[] = [];
+    let stats: ChatStats | undefined;
     const modelName = usingExternal
       ? activeEndpoint?.model || activeEndpoint?.name || "external"
       : shortModelName(config?.model);
@@ -303,6 +305,7 @@ export function ChatPage({
           reasoning: reasoning || undefined,
           model: modelName,
           toolEvents: toolEvents.length ? [...toolEvents] : undefined,
+          stats,
           ...patch,
         };
         return copy;
@@ -371,6 +374,10 @@ export function ChatPage({
             model?: string;
             args?: unknown;
             result?: unknown;
+            completionTokens?: number;
+            promptTokens?: number;
+            durationMs?: number;
+            tokensPerSecond?: number;
             choices?: { delta?: { content?: string } }[];
           };
           try {
@@ -380,6 +387,16 @@ export function ChatPage({
           }
           if (json.error) throw new Error(json.error);
           if (json.model) responseModel = json.model;
+          if (json.type === "usage") {
+            stats = {
+              completionTokens: json.completionTokens,
+              promptTokens: json.promptTokens,
+              durationMs: json.durationMs,
+              tokensPerSecond: json.tokensPerSecond,
+            };
+            updateAssistant();
+            continue;
+          }
           if (json.type === "tool") {
             const name = json.name || "tool";
             toolEvents = [
@@ -442,6 +459,7 @@ export function ChatPage({
           reasoning: reasoning || undefined,
           model: finalModel,
           toolEvents: finalToolEvents,
+          stats,
         };
         return copy;
       });
@@ -456,6 +474,7 @@ export function ChatPage({
             reasoning: reasoning || undefined,
             model: finalModel,
             toolEvents: finalToolEvents,
+            stats,
             createdAt: Date.now(),
           },
         ],
@@ -798,6 +817,7 @@ export function ChatPage({
                 }
                 attachments={m.attachments}
                 toolEvents={m.toolEvents}
+                stats={m.stats}
                 defaultShowReasoning={showThinking}
               />
             ))

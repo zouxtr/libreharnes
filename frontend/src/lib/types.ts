@@ -68,6 +68,13 @@ export interface ChatToolEvent {
   status?: "running" | "done" | "error";
 }
 
+export interface ChatStats {
+  completionTokens?: number;
+  promptTokens?: number;
+  durationMs?: number;
+  tokensPerSecond?: number;
+}
+
 export interface ChatMessageRecord {
   role: "user" | "assistant" | "tool" | "system";
   content: string;
@@ -80,6 +87,8 @@ export interface ChatMessageRecord {
   attachments?: ChatAttachment[];
   /** Tool calls made while producing an assistant message. */
   toolEvents?: ChatToolEvent[];
+  /** Generation speed and token counts for this response. */
+  stats?: ChatStats;
   tool_calls?: unknown;
   tool_call_id?: string;
   name?: string;

@@ -8,9 +8,10 @@ import {
   FileText,
   CheckCircle2,
   XCircle,
+  Gauge,
 } from "lucide-react";
 import { Markdown } from "@/components/common/Markdown";
-import type { ChatAttachment, ChatToolEvent } from "@/lib/types";
+import type { ChatAttachment, ChatStats, ChatToolEvent } from "@/lib/types";
 import { cn, displayModelName } from "@/lib/utils";
 
 interface ChatMessageProps {
@@ -22,6 +23,7 @@ interface ChatMessageProps {
   toolLabel?: string;
   attachments?: ChatAttachment[];
   toolEvents?: ChatToolEvent[];
+  stats?: ChatStats;
   /** Expand thinking blocks by default (the chat toolbar toggle). */
   defaultShowReasoning?: boolean;
 }
@@ -137,6 +139,7 @@ export function ChatMessage({
   toolLabel,
   attachments,
   toolEvents,
+  stats,
   defaultShowReasoning,
 }: ChatMessageProps) {
   const hasReasoning = !!reasoning && reasoning.trim().length > 0;
@@ -266,10 +269,33 @@ export function ChatMessage({
           </span>
         )}
 
-        {model && (
-          <div className="mt-2 flex items-center gap-1.5 text-[10.5px] text-muted-foreground/80">
-            <Cpu className="h-3 w-3 shrink-0" />
-            <span className="truncate">{displayModelName(model)}</span>
+        {(model || stats) && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-muted-foreground/80">
+            {model && (
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                <Cpu className="h-3 w-3 shrink-0" />
+                <span className="truncate">{displayModelName(model)}</span>
+              </span>
+            )}
+            {stats?.tokensPerSecond !== undefined && (
+              <span
+                className="inline-flex items-center gap-1"
+                title="Generation speed"
+              >
+                <Gauge className="h-3 w-3 shrink-0" />
+                {stats.tokensPerSecond.toFixed(1)} tok/s
+              </span>
+            )}
+            {stats?.completionTokens !== undefined && (
+              <span title="Generated tokens">
+                {stats.completionTokens} tokens
+              </span>
+            )}
+            {stats?.durationMs !== undefined && (
+              <span title="Generation time">
+                {(stats.durationMs / 1000).toFixed(2)}s
+              </span>
+            )}
           </div>
         )}
       </div>

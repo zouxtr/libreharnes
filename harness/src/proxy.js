@@ -263,6 +263,11 @@ function buildBody(cfg, messages, opts, stream, modelOverride) {
     max_tokens: opts.maxTokens ?? cfg.maxTokens ?? 1024,
     stream: !!stream,
   };
+  if (stream) {
+    // Ask OpenAI-compatible servers for a final usage/timings chunk so the UI
+    // can show accurate tokens-per-second for the response.
+    body.stream_options = { include_usage: true };
+  }
   if (tools.length) {
     body.tools = tools;
     body.tool_choice = 'auto';
@@ -362,9 +367,46 @@ async function streamChatCompletion(messages, opts = {}, onEvent = () => {}) {
   let fullContent = '';
   let fullReasoning = '';
   let responseModel = '';
+  let usage = null;
+  let timings = null;
+  let firstTokenAt = 0;
+  let lastTokenAt = 0;
+
+  const buildStats = () => {
+    const completionTokens =
+      (timings && timings.predicted_n) ||
+      (usage && usage.completion_tokens) ||
+      undefined;
+    const promptTokens =
+      (timings && timings.prompt_n) ||
+      (usage && usage.prompt_tokens) ||
+      undefined;
+    const predictedMs =
+      (timings && timings.predicted_ms) ||
+      (firstTokenAt && lastTokenAt ? lastTokenAt - firstTokenAt : undefined);
+    const tokensPerSecond =
+      timings && timings.predicted_per_second
+        ? timings.predicted_per_second
+        : completionTokens && predictedMs
+          ? completionTokens / (predictedMs / 1000)
+          : undefined;
+    return {
+      completionTokens: completionTokens || undefined,
+      promptTokens: promptTokens || undefined,
+      durationMs: predictedMs ? Math.round(predictedMs) : undefined,
+      tokensPerSecond:
+        tokensPerSecond && isFinite(tokensPerSecond)
+          ? Math.round(tokensPerSecond * 10) / 10
+          : undefined,
+    };
+  };
 
   while (toolRound < maxToolRounds) {
     toolRound++;
+    usage = null;
+    timings = null;
+    firstTokenAt = 0;
+    lastTokenAt = 0;
     const body = buildBody(cfg, current, opts, true, target.model);
     const res = await fetch(target.url, {
       method: 'POST',
@@ -398,17 +440,25 @@ async function streamChatCompletion(messages, opts = {}, onEvent = () => {}) {
           let json;
           try { json = JSON.parse(payload); } catch (e) { continue; }
           if (json.model) responseModel = json.model;
+          if (json.usage) usage = json.usage;
+          if (json.timings) timings = json.timings;
           const choice = (json.choices || [])[0] || {};
           const delta = choice.delta || {};
           if (delta.content) {
             content += delta.content;
             fullContent += delta.content;
+            const now = Date.now();
+            if (!firstTokenAt) firstTokenAt = now;
+            lastTokenAt = now;
             onEvent({ type: 'delta', content: delta.content });
           }
           const reasoningDelta =
             delta.reasoning_content || delta.reasoning || delta.thinking;
           if (reasoningDelta) {
             fullReasoning += reasoningDelta;
+            const now = Date.now();
+            if (!firstTokenAt) firstTokenAt = now;
+            lastTokenAt = now;
             onEvent({ type: 'reasoning', content: reasoningDelta });
           }
           if (delta.tool_calls) {
@@ -434,7 +484,9 @@ async function streamChatCompletion(messages, opts = {}, onEvent = () => {}) {
         content: fullContent,
         reasoning: fullReasoning,
         model: responseModel || cfg.model || 'local',
-        usage: {},
+        usage: usage || {},
+        timings: timings || undefined,
+        stats: buildStats(),
       };
     }
 
@@ -459,7 +511,9 @@ async function streamChatCompletion(messages, opts = {}, onEvent = () => {}) {
     content: fullContent,
     reasoning: fullReasoning,
     model: responseModel || cfg.model || 'local',
-    usage: {},
+    usage: usage || {},
+    timings: timings || undefined,
+    stats: buildStats(),
   };
 }
 

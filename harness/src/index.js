@@ -558,7 +558,7 @@ async function handle(req, res) {
         messages.unshift({ role: 'system', content: cfg.systemPrompt });
       }
 
-      const persist = (content, reasoning, model) => {
+      const persist = (content, reasoning, model, stats) => {
         if (!body.chatId) return;
         try {
           const existing = readChat(body.chatId);
@@ -572,6 +572,7 @@ async function handle(req, res) {
             content,
             reasoning: reasoning || undefined,
             model: responseModel,
+            stats: stats || undefined,
             createdAt: Date.now(),
           });
           existing.model = responseModel;
@@ -620,11 +621,16 @@ async function handle(req, res) {
               choices: [{ index: 0, delta: { content: result.content } }],
             });
           }
-          persist(finalContent, finalReasoning, result.model);
+          persist(finalContent, finalReasoning, result.model, result.stats);
+          if (result.stats) {
+            writeEvent({ type: 'usage', ...result.stats });
+          }
           writeEvent({
             id: 'chatcmpl-local',
             object: 'chat.completion.chunk',
             model: result.model || cfg.model || 'local',
+            usage: result.usage || undefined,
+            timings: result.timings || undefined,
             choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
           });
           res.write('data: [DONE]\n\n');
