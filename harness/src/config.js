@@ -109,6 +109,15 @@ function getActiveBase(cfg) {
 }
 
 // ---- Chat persistence ----
+function deriveChatTitle(messages) {
+  const first = (messages || []).find(
+    m => m.role === 'user' && typeof m.content === 'string' && m.content.trim(),
+  );
+  if (!first) return 'New chat';
+  const words = first.content.trim().replace(/\s+/g, ' ').split(' ');
+  return words.slice(0, 5).join(' ').slice(0, 60).trim();
+}
+
 function chatPath(id) {
   return path.join(CHATS_DIR, id + '.json');
 }
@@ -124,7 +133,10 @@ function listChats() {
       const c = JSON.parse(raw);
       chats.push({
         id: c.id,
-        title: c.title || 'New chat',
+        title:
+          c.title && c.title !== 'New chat'
+            ? c.title
+            : deriveChatTitle(c.messages),
         updatedAt: c.updatedAt || c.createdAt || 0,
         createdAt: c.createdAt || 0,
         messageCount: (c.messages || []).length,
@@ -168,6 +180,7 @@ module.exports = {
   save,
   resolveModelPath,
   getActiveBase,
+  deriveChatTitle,
   chatPath,
   listChats,
   readChat,

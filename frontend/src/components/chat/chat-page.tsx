@@ -78,6 +78,20 @@ function toApiMessage(message: ChatMessageRecord) {
   };
 }
 
+/** Use the first five words of the first message as the chat title. */
+function titleFromMessage(message?: ChatMessageRecord): string {
+  const text =
+    (message?.content || "").trim() ||
+    (message?.attachments || []).map((a) => a.name).join(" ");
+  const words = text
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+  if (words.length === 0) return "New chat";
+  return words.slice(0, 5).join(" ").slice(0, 60).trimEnd();
+}
+
 export function ChatPage({
   chatId,
   resetNonce,
@@ -161,12 +175,27 @@ export function ChatPage({
       .getChat(chatId)
       .then(({ chat }) => {
         if (cancelled) return;
+        const allMessages = chat.messages || [];
         setMessages(
-          (chat.messages || []).filter(
+          allMessages.filter(
             (m) => m.role === "user" || m.role === "assistant",
           ),
         );
-        setTitle(chat.title || "Chat");
+        const storedTitle =
+          chat.title && chat.title !== "New chat" && chat.title !== "Chat"
+            ? chat.title
+            : "";
+        const resolvedTitle =
+          storedTitle ||
+          titleFromMessage(allMessages.find((m) => m.role === "user"));
+        setTitle(resolvedTitle);
+        if (resolvedTitle !== chat.title && resolvedTitle !== "New chat") {
+          void api
+            .updateChat(chat.id, { title: resolvedTitle })
+            .catch(() => {
+              /* repair is best-effort */
+            });
+        }
         setActiveId(chat.id);
       })
       .catch((e: unknown) => {
@@ -297,6 +326,12 @@ export function ChatPage({
     const controller = new AbortController();
     abortRef.current = controller;
     let chatIdToUse = activeId;
+    let chatTitle = title;
+    const firstUser = history.find((m) => m.role === "user");
+    if ((!chatTitle || chatTitle === "New chat") && firstUser) {
+      chatTitle = titleFromMessage(firstUser);
+      if (chatTitle !== title) setTitle(chatTitle);
+    }
     let assistant = "";
     let reasoning = "";
     let responseModel = "";
@@ -331,13 +366,12 @@ export function ChatPage({
       }
 
       if (!chatIdToUse) {
-        const lastUser = [...history].reverse().find((m) => m.role === "user");
-        const newTitle = (lastUser?.content || "New chat").slice(0, 60);
-        const created = await api.saveChat({ title: newTitle, messages: [] });
+        chatTitle = titleFromMessage(firstUser);
+        const created = await api.saveChat({ title: chatTitle, messages: [] });
         chatIdToUse = created.chat.id;
         justCreatedRef.current = chatIdToUse;
         setActiveId(chatIdToUse);
-        setTitle(newTitle);
+        setTitle(chatTitle);
         onChatCreated(chatIdToUse);
       }
 
@@ -475,7 +509,7 @@ export function ChatPage({
       });
 
       await api.updateChat(chatIdToUse, {
-        title,
+        title: chatTitle,
         messages: [
           ...history,
           {

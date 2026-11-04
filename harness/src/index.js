@@ -18,6 +18,7 @@ const {
   readChat,
   writeChat,
   newChatId,
+  deriveChatTitle,
 } = require('./config');
 const {
   chatCompletion,
@@ -343,10 +344,16 @@ async function handle(req, res) {
 
     if (pathname === '/api/chats' && req.method === 'POST') {
       const body = await readJson(req);
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const providedTitle =
+        typeof body.title === 'string' ? body.title.trim() : '';
       const chat = {
         id: body.id || newChatId(),
-        title: body.title || 'New chat',
-        messages: body.messages || [],
+        title:
+          providedTitle && providedTitle !== 'New chat'
+            ? providedTitle
+            : deriveChatTitle(messages),
+        messages,
         model: body.model || cfg.model || '',
         createdAt: body.createdAt || Date.now(),
         updatedAt: Date.now(),
