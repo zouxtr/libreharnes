@@ -28,6 +28,8 @@ export interface Config {
   maxTokens: number;
   thinkingEffort: ThinkingEffort;
   toolsEnabled: Record<string, boolean>;
+  /** Local model file names the user has starred. */
+  starredModels: string[];
   systemPrompt: string;
   loaded: boolean;
   llamaState: "stopped" | "starting" | "ready" | "error";
@@ -40,6 +42,7 @@ export interface ModelInfo {
   sizeStr: string;
   active: boolean;
   loaded: boolean;
+  starred: boolean;
 }
 
 export interface ChatSummary {

@@ -88,6 +88,11 @@ export const api = {
     ),
   deleteModel: (name: string) =>
     request<{ ok: boolean }>("/api/models/delete", json({ name })),
+  starModel: (name: string, starred: boolean) =>
+    request<{ ok: boolean; starredModels: string[] }>(
+      "/api/models/star",
+      json({ name, starred }),
+    ),
 
   // Chats
   getChats: () => request<{ chats: ChatSummary[] }>("/api/chats"),

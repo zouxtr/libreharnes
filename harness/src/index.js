@@ -233,6 +233,7 @@ function configResponse() {
     maxTokens: cfg.maxTokens,
     thinkingEffort: cfg.thinkingEffort,
     toolsEnabled: cfg.toolsEnabled,
+    starredModels: cfg.starredModels || [],
     systemPrompt: cfg.systemPrompt || '',
     loaded: status.state === 'ready',
     llamaState: status.state,
@@ -393,6 +394,7 @@ async function handle(req, res) {
               sizeStr: formatSize(size),
               active: cfg.model === 'models/' + f,
               loaded: status.state === 'ready' && loadedPath === full,
+              starred: (cfg.starredModels || []).includes(f),
             });
           }
         }
@@ -425,20 +427,38 @@ async function handle(req, res) {
       return send(res, 200, { ok: true, status: llamaStatus() });
     }
 
+    if (pathname === '/api/models/star' && req.method === 'POST') {
+      const body = await readJson(req);
+      const base = path.basename(String(body.name || ''));
+      if (!base) return send(res, 400, { error: 'name required' });
+      let starred = Array.isArray(cfg.starredModels) ? [...cfg.starredModels] : [];
+      if (body.starred) {
+        if (!starred.includes(base)) starred.push(base);
+      } else {
+        starred = starred.filter(n => n !== base);
+      }
+      cfg = save({ ...cfg, starredModels: starred });
+      return send(res, 200, { ok: true, starredModels: cfg.starredModels });
+    }
+
     if (pathname === '/api/models/delete' && req.method === 'POST') {
       const body = await readJson(req);
       const name = body.name;
       if (!name) return send(res, 400, { error: 'name required' });
-      const full = path.join(MODELS_DIR, path.basename(name));
+      const base = path.basename(name);
+      const full = path.join(MODELS_DIR, base);
       if (!full.startsWith(MODELS_DIR) || !fs.existsSync(full)) {
         return send(res, 404, { error: 'model not found' });
       }
       const status = llamaStatus();
       if (status.state === 'ready' && status.model === full) stopLlama();
       fs.unlinkSync(full);
-      if (cfg.model === 'models/' + path.basename(name)) {
-        cfg = save({ ...cfg, model: '' });
+      const patch = {};
+      if (cfg.model === 'models/' + base) patch.model = '';
+      if ((cfg.starredModels || []).includes(base)) {
+        patch.starredModels = cfg.starredModels.filter(n => n !== base);
       }
+      if (Object.keys(patch).length) cfg = save({ ...cfg, ...patch });
       return send(res, 200, { ok: true });
     }
 

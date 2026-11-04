@@ -42,6 +42,8 @@ const DEFAULTS = {
   maxTokens: 1024,
   // Which built-in tools the model may call
   toolsEnabled: { ...DEFAULT_TOOLS },
+  // Local model file names the user has starred (favorites)
+  starredModels: [],
   // Optional system prompt
   systemPrompt: '',
 };
@@ -70,6 +72,9 @@ function load() {
           type: e.type || 'external',
         }));
       }
+      if (Array.isArray(parsed.starredModels)) {
+        cfg.starredModels = parsed.starredModels.filter(n => typeof n === 'string');
+      }
     } catch (err) {
       console.warn('[config] Could not parse config.json, using defaults:', err.message);
     }
@@ -79,7 +84,14 @@ function load() {
 
 function save(cfg) {
   ensureDirs();
-  const merged = { ...DEFAULTS, ...cfg, toolsEnabled: { ...DEFAULT_TOOLS, ...(cfg.toolsEnabled || {}) } };
+  const merged = {
+    ...DEFAULTS,
+    ...cfg,
+    toolsEnabled: { ...DEFAULT_TOOLS, ...(cfg.toolsEnabled || {}) },
+    starredModels: Array.isArray(cfg.starredModels)
+      ? [...new Set(cfg.starredModels.filter(n => typeof n === 'string'))]
+      : [],
+  };
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2), 'utf8');
   return merged;
 }

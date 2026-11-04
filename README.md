@@ -88,7 +88,10 @@ them. You can switch models, choose thinking effort, regenerate, and clear the
 conversation.
 
 ### Models
-- **Local** — models on disk; load, unload, delete.
+- **Local** — models on disk; star favorites, load, unload, delete. Starred
+  models are pinned to the top of the list and appear first in the chat model
+  picker; the **Starred** filter shows only them. Stars are stored in
+  `config.json`, so they survive updates and reinstalls.
 - **Discover** — search Hugging Face for GGUF repos, expand a repo, download a
   quant.
 - **Downloads** — every download job with live progress. Interrupted transfers

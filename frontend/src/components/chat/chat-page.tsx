@@ -14,6 +14,7 @@ import {
   Paperclip,
   FileText,
   Brain,
+  Star,
 } from "lucide-react";
 import { useHarness } from "@/lib/harness";
 import { api } from "@/lib/api";
@@ -195,6 +196,15 @@ export function ChatPage({
   }, [input]);
 
   const loadedModel = models.find((m) => m.loaded);
+  const orderedModels = React.useMemo(
+    () =>
+      [...models].sort(
+        (a, b) =>
+          Number(b.starred) - Number(a.starred) ||
+          a.name.localeCompare(b.name),
+      ),
+    [models],
+  );
   const effort = config?.thinkingEffort || "default";
   const effortLabel =
     EFFORTS.find((e) => e.value === effort)?.label || "Default";
@@ -618,7 +628,7 @@ export function ChatPage({
                     No local models yet.
                   </div>
                 ) : (
-                  models.map((m) => (
+                  orderedModels.map((m) => (
                     <div
                       key={m.name}
                       className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"
@@ -630,6 +640,9 @@ export function ChatPage({
                         disabled={!!loadingModel}
                       >
                         <span className="block truncate text-[12px] text-foreground">
+                          {m.starred && (
+                            <Star className="mr-1 inline h-2.5 w-2.5 fill-current text-warning align-[-1px]" />
+                          )}
                           {shortModelName(m.name)}
                         </span>
                         <span className="text-[10.5px] text-muted-foreground">
