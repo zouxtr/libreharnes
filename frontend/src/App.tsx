@@ -170,14 +170,18 @@ function Shell() {
           </div>
         ) : (
           <main className="min-h-0 flex-1 overflow-hidden">
-            {page === "chat" && (
+            {/*
+              Keep the chat mounted across page switches so an in-flight
+              response keeps streaming and the composer keeps its draft.
+            */}
+            <div className={page === "chat" ? "h-full" : "hidden"}>
               <ChatPage
                 chatId={activeChatId}
                 resetNonce={resetNonce}
                 onChatCreated={setActiveChatId}
                 onOpenModels={() => setPage("models")}
               />
-            )}
+            </div>
             {page === "models" && <ModelsPage />}
             {page === "tools" && <ToolsPage />}
             {page === "settings" && <SettingsPage />}

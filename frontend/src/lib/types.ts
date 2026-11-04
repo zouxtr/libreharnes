@@ -51,6 +51,23 @@ export interface ChatSummary {
   model: string;
 }
 
+export interface ChatAttachment {
+  name: string;
+  /** Path relative to the LibreHarnes install root. */
+  path: string;
+  size: number;
+  sizeStr?: string;
+  /** Decoded text content for text-like files. */
+  text?: string;
+}
+
+export interface ChatToolEvent {
+  name: string;
+  args?: unknown;
+  result?: unknown;
+  status?: "running" | "done" | "error";
+}
+
 export interface ChatMessageRecord {
   role: "user" | "assistant" | "tool" | "system";
   content: string;
@@ -59,9 +76,22 @@ export interface ChatMessageRecord {
   /** Name of the model that produced this message. */
   model?: string;
   createdAt?: number;
+  /** Files attached to a user message. */
+  attachments?: ChatAttachment[];
+  /** Tool calls made while producing an assistant message. */
+  toolEvents?: ChatToolEvent[];
   tool_calls?: unknown;
   tool_call_id?: string;
   name?: string;
+}
+
+export interface UploadedFile {
+  name: string;
+  path: string;
+  size: number;
+  sizeStr: string;
+  text?: string;
+  isText: boolean;
 }
 
 export interface Chat {

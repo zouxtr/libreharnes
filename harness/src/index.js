@@ -13,6 +13,7 @@ const {
   save,
   resolveModelPath,
   MODELS_DIR,
+  SANDBOX_DIR,
   listChats,
   readChat,
   writeChat,
@@ -78,6 +79,48 @@ async function readJson(req) {
   } catch (e) {
     throw new Error('Invalid JSON body');
   }
+}
+
+function readRawBody(req, limit = 32 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let done = false;
+    req.on('data', chunk => {
+      if (done) return;
+      size += chunk.length;
+      if (size > limit) {
+        done = true;
+        reject(new Error('File is too large (max 32 MB).'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (done) return;
+      done = true;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', err => {
+      if (done) return;
+      done = true;
+      reject(err);
+    });
+  });
+}
+
+function isProbablyText(buf) {
+  if (!buf.length) return true;
+  const sample = buf.subarray(0, Math.min(buf.length, 8192));
+  if (sample.includes(0)) return false;
+  // Count replacement characters that would appear in binary data.
+  const text = sample.toString('utf8');
+  let bad = 0;
+  for (const ch of text) {
+    if (ch === '\uFFFD') bad++;
+  }
+  return bad / Math.max(1, text.length) < 0.02;
 }
 
 const MIME = {
@@ -248,6 +291,48 @@ async function handle(req, res) {
 
     if (pathname === '/api/status' && req.method === 'GET') {
       return send(res, 200, { ...llamaStatus(), loaded: llamaStatus().state === 'ready', config: configResponse() });
+    }
+
+    // ---- Uploads ----
+    if (pathname === '/api/upload' && req.method === 'POST') {
+      const rawName = String(parsed.query.name || '');
+      const safeName = path
+        .basename(rawName)
+        .replace(/[^\w.\- ()[\]]+/g, '_')
+        .slice(0, 180);
+      if (!safeName || safeName === '.' || safeName === '..') {
+        return send(res, 400, { error: 'name query parameter required' });
+      }
+
+      const buf = await readRawBody(req);
+      if (!buf.length) return send(res, 400, { error: 'file is empty' });
+
+      const uploadsDir = path.join(SANDBOX_DIR, 'uploads');
+      fs.mkdirSync(uploadsDir, { recursive: true });
+
+      const ext = path.extname(safeName);
+      const stem = path.basename(safeName, ext);
+      let filename = safeName;
+      let counter = 1;
+      while (fs.existsSync(path.join(uploadsDir, filename))) {
+        filename = `${stem}-${counter++}${ext}`;
+      }
+
+      const full = path.join(uploadsDir, filename);
+      fs.writeFileSync(full, buf);
+      const isText = isProbablyText(buf);
+      const text = isText && buf.length <= 256 * 1024 ? buf.toString('utf8') : undefined;
+      return send(res, 200, {
+        ok: true,
+        file: {
+          name: filename,
+          path: path.relative(ROOT, full).split(path.sep).join('/'),
+          size: buf.length,
+          sizeStr: formatSize(buf.length),
+          isText,
+          text,
+        },
+      });
     }
 
     // ---- Chats ----
@@ -524,7 +609,7 @@ async function handle(req, res) {
             } else if (evt.type === 'tool') {
               writeEvent({ type: 'tool', name: evt.name, args: evt.args });
             } else if (evt.type === 'tool_result') {
-              writeEvent({ type: 'tool_result', name: evt.name });
+              writeEvent({ type: 'tool_result', name: evt.name, result: evt.result });
             }
           });
           if (!finalContent && result.content) {

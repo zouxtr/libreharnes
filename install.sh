@@ -50,7 +50,8 @@ trap cleanup EXIT
 
 say "Downloading LibreHarnes…"
 ARCHIVE="$TMP_DIR/libreharnes.tar.gz"
-curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" -o "$ARCHIVE" \
+curl -fsSL -H "Cache-Control: no-cache" \
+  "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" -o "$ARCHIVE" \
   || fail "Could not download the LibreHarnes source archive."
 
 mkdir -p "$TMP_DIR/src"
@@ -59,9 +60,23 @@ SRC_DIR="$(find "$TMP_DIR/src" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 [ -n "$SRC_DIR" ] || fail "The downloaded archive was empty."
 
 mkdir -p "$INSTALL_DIR"
-# Copy source files over the existing install, preserving models/, chats/,
-# config.json and downloads.json from earlier installs.
-cp -R "$SRC_DIR"/. "$INSTALL_DIR"/
+if [ -f "$INSTALL_DIR/config.json" ]; then
+  say "Updating existing install (models, chats and settings are preserved)…"
+else
+  say "Installing app files…"
+fi
+# Copy application files only. Runtime data from an earlier install is never
+# overwritten or removed, so re-running the installer is a safe update.
+tar -C "$SRC_DIR" \
+  --exclude='./models' \
+  --exclude='./chats' \
+  --exclude='./sandbox' \
+  --exclude='./llama.cpp' \
+  --exclude='./node_modules' \
+  --exclude='./.git' \
+  --exclude='./config.json' \
+  --exclude='./downloads.json' \
+  -cf - . | tar -C "$INSTALL_DIR" -xf -
 say "Installed app files to $INSTALL_DIR"
 
 if [ "${LIBREHARNES_SKIP_LLAMA:-0}" != "1" ]; then

@@ -10,6 +10,7 @@ import type {
   SystemInfo,
   ThinkingEffort,
   ToolInfo,
+  UploadedFile,
 } from "./types";
 
 export class ApiError extends Error {
@@ -100,6 +101,19 @@ export const api = {
     }),
   deleteChat: (id: string) =>
     request<{ ok: boolean }>(`/api/chats/${id}`, { method: "DELETE" }),
+
+  // File uploads (raw request body, no multipart parser needed)
+  uploadFile: (file: File) =>
+    request<{ ok: boolean; file: UploadedFile }>(
+      `/api/upload?name=${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        body: file,
+        headers: {
+          "Content-Type": file.type || "application/octet-stream",
+        },
+      },
+    ),
 
   // Hugging Face
   searchHf: (query: string, limit = 20) =>

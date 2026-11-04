@@ -43,6 +43,11 @@ shortcut. Start it from there, or run `libreharnes.cmd` in the install folder.
 
 It does **not** download any models. You choose those inside the app.
 
+Re-running the same `curl` command updates the application. Models, chats,
+uploads, and settings are kept: the installer only copies app files and skips
+`models/`, `chats/`, `sandbox/`, `llama.cpp/`, `config.json`, and
+`downloads.json`.
+
 ### Manual install
 
 ```bash
@@ -69,9 +74,16 @@ The app itself has four pages:
 
 ### Chat
 Streaming chat with local GGUF models. When a model emits reasoning, a
-collapsible **Thinking** block appears above the answer. Every assistant
-message shows which model wrote it. You can switch models, choose thinking
-effort, regenerate, and clear the conversation.
+collapsible **Thinking** block appears above the answer; use the **Thinking**
+toggle in the chat toolbar to keep thinking expanded by default. Tool calls
+show their name, arguments, and result in an expandable block.
+
+Use the paperclip button in the composer to attach files. Text files are sent
+to the model inline; other files are saved under `sandbox/uploads/` and their
+path is shared with the model. Switching pages does not interrupt an in-flight
+response or clear the composer — the chat stays mounted in the background.
+Every assistant message shows which model wrote it. You can switch models,
+choose thinking effort, regenerate, and clear the conversation.
 
 ### Models
 - **Local** — models on disk; load, unload, delete.

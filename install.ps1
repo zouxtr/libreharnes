@@ -38,7 +38,7 @@ New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
 try {
   Write-Step "Downloading LibreHarnes…"
   $Zip = Join-Path $TempDir "libreharnes.zip"
-  Invoke-WebRequest -Uri "https://codeload.github.com/$Repo/zip/refs/heads/$Branch" -OutFile $Zip -UseBasicParsing
+  Invoke-WebRequest -Uri "https://codeload.github.com/$Repo/zip/refs/heads/$Branch" -OutFile $Zip -UseBasicParsing -Headers @{ "Cache-Control" = "no-cache" }
 
   Write-Step "Extracting…"
   $ExtractDir = Join-Path $TempDir "src"
@@ -47,7 +47,21 @@ try {
   if (-not $SourceDir) { Fail "The downloaded archive was empty." }
 
   New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-  Copy-Item -Path (Join-Path $SourceDir.FullName "*") -Destination $InstallDir -Recurse -Force
+  if (Test-Path (Join-Path $InstallDir "config.json")) {
+    Write-Step "Updating existing install (models, chats and settings are preserved)…"
+  } else {
+    Write-Step "Installing app files…"
+  }
+
+  # Copy application files only. Never overwrite or remove runtime data from
+  # an earlier install, so re-running the installer is a safe update.
+  $ExcludedDirs = @("models", "chats", "sandbox", "llama.cpp", "node_modules", ".git")
+  $ExcludedFiles = @("config.json", "downloads.json")
+  Get-ChildItem -LiteralPath $SourceDir.FullName -Force | ForEach-Object {
+    if ($_.PSIsContainer -and $ExcludedDirs -contains $_.Name) { return }
+    if (-not $_.PSIsContainer -and $ExcludedFiles -contains $_.Name) { return }
+    Copy-Item -LiteralPath $_.FullName -Destination $InstallDir -Recurse -Force
+  }
   Write-Step "Installed app files to $InstallDir"
 
   if ($env:LIBREHARNES_SKIP_LLAMA -ne "1") {

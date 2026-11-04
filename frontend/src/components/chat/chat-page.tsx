@@ -11,11 +11,19 @@ import {
   Sparkles,
   AlertCircle,
   X,
+  Paperclip,
+  FileText,
+  Brain,
 } from "lucide-react";
 import { useHarness } from "@/lib/harness";
 import { api } from "@/lib/api";
-import type { ChatMessageRecord, ThinkingEffort } from "@/lib/types";
-import { cn, shortModelName } from "@/lib/utils";
+import type {
+  ChatAttachment,
+  ChatMessageRecord,
+  ChatToolEvent,
+  ThinkingEffort,
+} from "@/lib/types";
+import { cn, formatBytes, shortModelName } from "@/lib/utils";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { ChatMessage } from "./chat-message";
 
@@ -38,6 +46,35 @@ const SUGGESTIONS = [
   "Write a short Python script that lists files in a folder.",
   "Search the web for the latest llama.cpp release notes.",
 ];
+
+/** Turn attached files into context the model can actually read. */
+const MAX_INLINE_FILE_CHARS = 20000;
+
+function attachmentContext(attachments?: ChatAttachment[]): string {
+  if (!attachments || attachments.length === 0) return "";
+  return attachments
+    .map((attachment) => {
+      const header = `[Attached file: ${attachment.name} (${attachment.path})]`;
+      if (attachment.text) {
+        const truncated = attachment.text.length > MAX_INLINE_FILE_CHARS;
+        const body = truncated
+          ? `${attachment.text.slice(0, MAX_INLINE_FILE_CHARS)}\n… (file truncated)`
+          : attachment.text;
+        return `${header}\n\`\`\`\n${body}\n\`\`\``;
+      }
+      return `${header}\nBinary file saved at ${attachment.path}. Use the read_file tool if you need its contents.`;
+    })
+    .join("\n\n");
+}
+
+function toApiMessage(message: ChatMessageRecord) {
+  const extra =
+    message.role === "user" ? attachmentContext(message.attachments) : "";
+  return {
+    role: message.role,
+    content: extra ? `${message.content}\n\n${extra}` : message.content,
+  };
+}
 
 export function ChatPage({
   chatId,
@@ -64,10 +101,20 @@ export function ChatPage({
   const [loadingModel, setLoadingModel] = React.useState<string | null>(null);
   const [modelMenu, setModelMenu] = React.useState(false);
   const [effortMenu, setEffortMenu] = React.useState(false);
+  const [attachments, setAttachments] = React.useState<ChatAttachment[]>([]);
+  const [uploading, setUploading] = React.useState(false);
+  const [showThinking, setShowThinking] = React.useState(() => {
+    try {
+      return localStorage.getItem("lh.showThinking") === "1";
+    } catch {
+      return false;
+    }
+  });
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const bottomRef = React.useRef<HTMLDivElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
   const abortRef = React.useRef<AbortController | null>(null);
   const justCreatedRef = React.useRef<string | null>(null);
 
@@ -80,12 +127,25 @@ export function ChatPage({
     effortMenu,
   );
 
+  React.useEffect(() => {
+    try {
+      localStorage.setItem("lh.showThinking", showThinking ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [showThinking]);
+
   // Load the selected conversation.
   React.useEffect(() => {
+    setAttachments([]);
     if (chatId && justCreatedRef.current === chatId) {
       justCreatedRef.current = null;
       return;
     }
+    // Selecting a different conversation stops any response still streaming
+    // into the previous one. Switching pages does not change chatId, so the
+    // chat keeps running in the background.
+    abortRef.current?.abort();
     if (!chatId) {
       setMessages([]);
       setTitle("New chat");
@@ -186,6 +246,32 @@ export function ChatPage({
     }
   };
 
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      const uploaded: ChatAttachment[] = [];
+      for (const file of Array.from(files)) {
+        const result = await api.uploadFile(file);
+        uploaded.push(result.file);
+      }
+      setAttachments((prev) => [...prev, ...uploaded]);
+      toast(
+        `Attached ${uploaded.length} file${uploaded.length === 1 ? "" : "s"}`,
+        "success",
+      );
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const runCompletion = async (history: ChatMessageRecord[]) => {
     if (!usingExternal && !config?.model) {
       setError("Select a local model first, or download one from Models.");
@@ -203,9 +289,25 @@ export function ChatPage({
     let assistant = "";
     let reasoning = "";
     let responseModel = "";
+    let toolEvents: ChatToolEvent[] = [];
     const modelName = usingExternal
       ? activeEndpoint?.model || activeEndpoint?.name || "external"
       : shortModelName(config?.model);
+
+    const updateAssistant = (patch: Partial<ChatMessageRecord> = {}) => {
+      setMessages((prev) => {
+        const copy = [...prev];
+        copy[copy.length - 1] = {
+          role: "assistant",
+          content: assistant,
+          reasoning: reasoning || undefined,
+          model: modelName,
+          toolEvents: toolEvents.length ? [...toolEvents] : undefined,
+          ...patch,
+        };
+        return copy;
+      });
+    };
 
     try {
       if (!usingExternal && !config?.loaded) {
@@ -226,9 +328,7 @@ export function ChatPage({
         onChatCreated(chatIdToUse);
       }
 
-      const res = await api.chat(
-        history.map((m) => ({ role: m.role, content: m.content })),
-        {
+      const res = await api.chat(history.map(toApiMessage), {
           stream: true,
           chatId: chatIdToUse,
           signal: controller.signal,
@@ -269,6 +369,8 @@ export function ChatPage({
             name?: string;
             content?: string;
             model?: string;
+            args?: unknown;
+            result?: unknown;
             choices?: { delta?: { content?: string } }[];
           };
           try {
@@ -279,40 +381,50 @@ export function ChatPage({
           if (json.error) throw new Error(json.error);
           if (json.model) responseModel = json.model;
           if (json.type === "tool") {
-            setToolLabel(`Running ${json.name || "tool"}…`);
+            const name = json.name || "tool";
+            toolEvents = [
+              ...toolEvents,
+              { name, args: json.args, status: "running" },
+            ];
+            setToolLabel(`Running ${name}…`);
+            updateAssistant();
             continue;
           }
           if (json.type === "tool_result") {
+            const runningIndex = [...toolEvents]
+              .map((event, index) => ({ event, index }))
+              .reverse()
+              .find(({ event }) => event.status === "running")?.index;
+            if (runningIndex !== undefined) {
+              toolEvents = toolEvents.map((event, index) =>
+                index === runningIndex
+                  ? {
+                      ...event,
+                      name: json.name || event.name,
+                      result: json.result,
+                      status: "done",
+                    }
+                  : event,
+              );
+            } else if (json.name) {
+              toolEvents = [
+                ...toolEvents,
+                { name: json.name, result: json.result, status: "done" },
+              ];
+            }
             setToolLabel(null);
+            updateAssistant();
             continue;
           }
           if (json.type === "reasoning" && json.content) {
             reasoning += json.content;
-            setMessages((prev) => {
-              const copy = [...prev];
-              copy[copy.length - 1] = {
-                role: "assistant",
-                content: assistant,
-                reasoning,
-                model: modelName,
-              };
-              return copy;
-            });
+            updateAssistant();
             continue;
           }
           const delta = json.choices?.[0]?.delta?.content;
           if (delta) {
             assistant += delta;
-            setMessages((prev) => {
-              const copy = [...prev];
-              copy[copy.length - 1] = {
-                role: "assistant",
-                content: assistant,
-                reasoning: reasoning || undefined,
-                model: modelName,
-              };
-              return copy;
-            });
+            updateAssistant();
           }
         }
       }
@@ -321,6 +433,7 @@ export function ChatPage({
         assistant = "(The model returned an empty response.)";
       }
       const finalModel = responseModel || modelName;
+      const finalToolEvents = toolEvents.length ? toolEvents : undefined;
       setMessages((prev) => {
         const copy = [...prev];
         copy[copy.length - 1] = {
@@ -328,6 +441,7 @@ export function ChatPage({
           content: assistant,
           reasoning: reasoning || undefined,
           model: finalModel,
+          toolEvents: finalToolEvents,
         };
         return copy;
       });
@@ -341,6 +455,7 @@ export function ChatPage({
             content: assistant,
             reasoning: reasoning || undefined,
             model: finalModel,
+            toolEvents: finalToolEvents,
             createdAt: Date.now(),
           },
         ],
@@ -351,7 +466,14 @@ export function ChatPage({
       if (err.name === "AbortError") {
         setMessages((prev) => {
           const copy = [...prev];
-          if (copy.length && copy[copy.length - 1].role === "assistant" && !copy[copy.length - 1].content) {
+          const last = copy[copy.length - 1];
+          if (
+            last &&
+            last.role === "assistant" &&
+            !last.content &&
+            !last.reasoning &&
+            !(last.toolEvents && last.toolEvents.length)
+          ) {
             copy.pop();
           }
           return copy;
@@ -360,7 +482,14 @@ export function ChatPage({
         setError(err.message);
         setMessages((prev) => {
           const copy = [...prev];
-          if (copy.length && copy[copy.length - 1].role === "assistant" && !copy[copy.length - 1].content) {
+          const last = copy[copy.length - 1];
+          if (
+            last &&
+            last.role === "assistant" &&
+            !last.content &&
+            !last.reasoning &&
+            !(last.toolEvents && last.toolEvents.length)
+          ) {
             copy.pop();
           }
           return copy;
@@ -376,12 +505,14 @@ export function ChatPage({
 
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    if ((!text && attachments.length === 0) || sending) return;
+    const pending = attachments.length ? [...attachments] : undefined;
     const history: ChatMessageRecord[] = [
       ...messages.filter((m) => m.role === "user" || m.role === "assistant"),
-      { role: "user", content: text },
+      { role: "user", content: text, attachments: pending },
     ];
     setInput("");
+    setAttachments([]);
     await runCompletion(history);
   };
 
@@ -398,6 +529,7 @@ export function ChatPage({
 
   const handleClear = async () => {
     setMessages([]);
+    setAttachments([]);
     setError(null);
     setTitle("New chat");
     if (activeId) {
@@ -564,6 +696,23 @@ export function ChatPage({
 
           <button
             type="button"
+            onClick={() => setShowThinking((v) => !v)}
+            className={cn(
+              "btn btn-ghost btn-sm gap-1.5",
+              showThinking && "bg-accent text-foreground",
+            )}
+            title={
+              showThinking
+                ? "Thinking blocks are expanded by default"
+                : "Show model thinking by default"
+            }
+            aria-pressed={showThinking}
+          >
+            <Brain className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Thinking</span>
+          </button>
+          <button
+            type="button"
             onClick={() => void handleRegenerate()}
             disabled={sending || !messages.some((m) => m.role === "user")}
             className="btn btn-ghost btn-icon"
@@ -647,6 +796,9 @@ export function ChatPage({
                     ? toolLabel || undefined
                     : undefined
                 }
+                attachments={m.attachments}
+                toolEvents={m.toolEvents}
+                defaultShowReasoning={showThinking}
               />
             ))
           )}
@@ -671,6 +823,32 @@ export function ChatPage({
             </div>
           )}
 
+          {attachments.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {attachments.map((attachment, index) => (
+                <span
+                  key={`${attachment.path}-${index}`}
+                  className="inline-flex max-w-[260px] items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground"
+                  title={attachment.path}
+                >
+                  <FileText className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{attachment.name}</span>
+                  <span className="shrink-0 opacity-60">
+                    {attachment.sizeStr || formatBytes(attachment.size)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(index)}
+                    className="rounded p-0.5 hover:bg-accent hover:text-foreground"
+                    aria-label={`Remove ${attachment.name}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
           <div className="rounded-xl border border-border bg-card transition-colors focus-within:border-ring">
             <textarea
               ref={textareaRef}
@@ -687,6 +865,20 @@ export function ChatPage({
             />
             <div className="flex items-center justify-between gap-2 px-2 pb-2">
               <div className="flex min-w-0 items-center gap-1.5 text-[10.5px] text-muted-foreground">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading || sending}
+                  className="btn btn-ghost btn-icon h-6 w-6 shrink-0"
+                  title="Attach files"
+                  aria-label="Attach files"
+                >
+                  {uploading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Paperclip className="h-3.5 w-3.5" />
+                  )}
+                </button>
                 <span
                   className={cn(
                     "h-1.5 w-1.5 shrink-0 rounded-full",
@@ -716,7 +908,7 @@ export function ChatPage({
                 <button
                   type="button"
                   onClick={() => void handleSend()}
-                  disabled={!input.trim()}
+                  disabled={!input.trim() && attachments.length === 0}
                   className="btn btn-primary btn-icon h-7 w-7"
                   title="Send"
                 >
@@ -725,8 +917,16 @@ export function ChatPage({
               )}
             </div>
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => void handleFiles(e.target.files)}
+          />
           <p className="mt-1.5 text-center text-[10px] text-muted-foreground/70">
-            Enter to send · Shift+Enter for a new line · Everything runs locally
+            Enter to send · Shift+Enter for a new line · Attach files with the
+            paperclip · Everything runs locally
           </p>
         </div>
       </div>
