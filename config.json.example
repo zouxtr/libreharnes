@@ -1,0 +1,32 @@
+{
+  "port": 3030,
+  "host": "127.0.0.1",
+  "llamaServer": "llama.cpp/build/bin/llama-server",
+  "llamaBackend": "auto",
+  "model": "",
+  "mmproj": "",
+  "gpuLayers": 99,
+  "flashAttention": true,
+  "contextSize": 8192,
+  "threads": 6,
+  "activeEndpoint": "local",
+  "localApiKey": "",
+  "temperature": 0.7,
+  "topP": 0.95,
+  "endpoints": [
+    {
+      "name": "openrouter",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "key": "sk-or-...your-key...",
+      "model": "openai/gpt-4o-mini",
+      "type": "external"
+    },
+    {
+      "name": "local-llama",
+      "baseUrl": "http://127.0.0.1:8080",
+      "key": "",
+      "model": "local-model",
+      "type": "external"
+    }
+  ]
+}

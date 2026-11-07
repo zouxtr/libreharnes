@@ -1,0 +1,42 @@
+# LibreHarnes — do not commit models, builds, or runtime state
+
+# Downloaded GGUF models (user-provided via Hugging Face)
+# Anchored to the repo root so source folders named "models" are NOT ignored.
+/models/
+*.gguf
+*.bin
+
+# llama.cpp source + build artifacts
+/llama.cpp/
+llama.cpp/build/
+llama.cpp/*.so
+llama.cpp/*.so.*
+
+# Tool file sandbox
+/sandbox/
+
+# Generated config (contains API keys — do not commit)
+/config.json
+
+# Conversations and download queue (runtime state)
+/chats/
+/downloads.json
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Downloads / temp
+.tmp/
+*.part
+
+# Vite cache
+frontend/.vite/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db

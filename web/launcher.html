@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LibreHarnes</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #131313;
+        --card: #1a1a1a;
+        --border: #2a2a2a;
+        --fg: #ececec;
+        --muted: #8b8b8b;
+        --accent: #ececec;
+        --accent-fg: #131313;
+        --success: #4ade80;
+        --danger: #f87171;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          color-scheme: light;
+          --bg: #fafafa;
+          --card: #ffffff;
+          --border: #e4e4e7;
+          --fg: #18181b;
+          --muted: #71717a;
+          --accent: #18181b;
+          --accent-fg: #ffffff;
+          --success: #16a34a;
+          --danger: #dc2626;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--fg);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+          Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .card {
+        width: 100%;
+        max-width: 400px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--card);
+        padding: 22px;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+      h1 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .sub {
+        margin: 1px 0 0;
+        font-size: 11.5px;
+        color: var(--muted);
+      }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-bottom: 12px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--success);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 18%, transparent);
+      }
+      .dot.off {
+        background: var(--danger);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
+      }
+      .link-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg);
+        padding: 8px 10px;
+        margin-bottom: 12px;
+      }
+      .link-row code {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11.5px;
+        color: var(--fg);
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+      }
+      button,
+      a.btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        height: 32px;
+        padding: 0 12px;
+        border-radius: 7px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--fg);
+        font-size: 12px;
+        font-weight: 500;
+        font-family: inherit;
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+          background 120ms ease,
+          border-color 120ms ease,
+          opacity 120ms ease;
+      }
+      button:hover,
+      a.btn:hover {
+        background: color-mix(in srgb, var(--fg) 7%, transparent);
+      }
+      button.primary,
+      a.primary {
+        flex: 1;
+        border-color: var(--accent);
+        background: var(--accent);
+        color: var(--accent-fg);
+      }
+      button.primary:hover,
+      a.primary:hover {
+        opacity: 0.88;
+        background: var(--accent);
+      }
+      button.ghost {
+        color: var(--muted);
+      }
+      button.ghost:hover {
+        color: var(--danger);
+      }
+      .foot {
+        margin: 14px 0 0;
+        font-size: 10.5px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      .foot kbd {
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 0 4px;
+        font-family: inherit;
+        font-size: 10px;
+      }
+      .stopped .dot {
+        background: var(--danger);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card" id="card">
+      <div class="brand">
+        <div class="logo">LH</div>
+        <div>
+          <h1>LibreHarnes</h1>
+          <p class="sub">Local AI, on your hardware</p>
+        </div>
+      </div>
+
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span id="statusText">Checking server…</span>
+      </div>
+
+      <div class="link-row">
+        <code id="appUrl">http://127.0.0.1:3030/</code>
+      </div>
+
+      <div class="actions">
+        <a class="btn primary" id="openLink" href="/">Open LibreHarnes</a>
+        <button type="button" id="copyBtn" title="Copy the address">
+          Copy link
+        </button>
+      </div>
+
+      <div class="actions" style="margin-top: 8px">
+        <button type="button" class="ghost" id="stopBtn">
+          Stop server
+        </button>
+      </div>
+
+      <p class="foot">
+        Keep this window open while you use the app. Closing the launcher or
+        pressing <kbd>Stop server</kbd> shuts LibreHarnes down.
+      </p>
+    </main>
+
+    <script>
+      const url = window.location.origin + "/";
+      const appUrl = document.getElementById("appUrl");
+      const openLink = document.getElementById("openLink");
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const copyBtn = document.getElementById("copyBtn");
+      const stopBtn = document.getElementById("stopBtn");
+      const card = document.getElementById("card");
+
+      appUrl.textContent = url;
+      openLink.href = url;
+
+      async function check() {
+        try {
+          const res = await fetch("/api/config", { cache: "no-store" });
+          if (!res.ok) throw new Error("bad status");
+          const cfg = await res.json();
+          dot.classList.remove("off");
+          statusText.textContent = cfg.model
+            ? "Server running · " +
+              String(cfg.model).split(/[\\/]/).pop().replace(/\.gguf$/i, "")
+            : "Server running · no model selected";
+          return true;
+        } catch {
+          dot.classList.add("off");
+          statusText.textContent = "Server is not responding";
+          return false;
+        }
+      }
+
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(url);
+          copyBtn.textContent = "Copied";
+          setTimeout(() => (copyBtn.textContent = "Copy link"), 1400);
+        } catch {
+          appUrl.textContent = url;
+        }
+      });
+
+      stopBtn.addEventListener("click", async () => {
+        if (!confirm("Stop LibreHarnes and close the server?")) return;
+        try {
+          await fetch("/api/shutdown", { method: "POST" });
+        } catch {
+          /* server may already be gone */
+        }
+        card.classList.add("stopped");
+        dot.classList.add("off");
+        statusText.textContent = "Server stopped";
+        stopBtn.disabled = true;
+        openLink.style.pointerEvents = "none";
+        openLink.style.opacity = "0.5";
+      });
+
+      check();
+      setInterval(check, 3000);
+    </script>
+  </body>
+</html>
