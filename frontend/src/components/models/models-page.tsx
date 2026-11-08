@@ -126,9 +126,13 @@ export function ModelsPage() {
   React.useEffect(() => {
     let completed = false;
     let failed = false;
+    let projectorCompleted = false;
     for (const job of Object.values(jobs)) {
       const previous = jobStatusRef.current[job.id];
-      if (previous === "downloading" && job.status === "done") completed = true;
+      if (previous === "downloading" && job.status === "done") {
+        completed = true;
+        if (/mmproj/i.test(job.filename)) projectorCompleted = true;
+      }
       if (previous === "downloading" && job.status === "error") failed = true;
       jobStatusRef.current[job.id] = job.status;
     }
@@ -136,6 +140,12 @@ export function ModelsPage() {
       toast("Download complete", "success");
       void refreshModels();
       refreshProjectors();
+    }
+    if (projectorCompleted) {
+      toast(
+        "Vision projector ready — reload the model to use images",
+        "info",
+      );
     }
     if (failed) toast("Download failed — click retry to resume", "error");
   }, [jobs, refreshModels, refreshProjectors, toast]);
