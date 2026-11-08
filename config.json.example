@@ -5,6 +5,7 @@
   "llamaBackend": "auto",
   "model": "",
   "mmproj": "",
+  "modelProjectors": {},
   "gpuLayers": 99,
   "flashAttention": true,
   "contextSize": 8192,

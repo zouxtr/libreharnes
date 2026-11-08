@@ -42,8 +42,12 @@ const DEFAULTS = {
   llamaBackend: 'auto',
   // Local GGUF model to load (relative to ROOT or absolute)
   model: '',
-  // Optional multimodal projector (mmproj) for vision models. When empty,
-  // LibreHarnes auto-detects a matching mmproj-*.gguf next to the model.
+  // Per-model vision projector pairing. Maps a model filename to its
+  // mmproj-*.gguf path, so a projector is only ever used with the model it
+  // was downloaded for. This is filled in when a model + projector are
+  // installed together.
+  modelProjectors: {},
+  // Legacy single-projector setting. Migrated into modelProjectors on load.
   mmproj: '',
   // How many model layers to offload to the GPU. 99 = all layers.
   // Set to 0 to force CPU-only inference.
@@ -101,18 +105,51 @@ function load() {
       if (Array.isArray(parsed.starredModels)) {
         cfg.starredModels = parsed.starredModels.filter(n => typeof n === 'string');
       }
+      if (parsed.modelProjectors && typeof parsed.modelProjectors === 'object') {
+        cfg.modelProjectors = {};
+        for (const [model, projector] of Object.entries(parsed.modelProjectors)) {
+          if (typeof model === 'string' && typeof projector === 'string' && projector) {
+            cfg.modelProjectors[model] = projector;
+          }
+        }
+      }
     } catch (err) {
       console.warn('[config] Could not parse config.json, using defaults:', err.message);
     }
   }
+
+  // Migrate the old global projector setting into a per-model pairing. Only
+  // keep it when it actually belongs to the configured model; otherwise the
+  // projector would be passed to unrelated text models.
+  if (cfg.mmproj && cfg.model) {
+    const modelPath = resolveModelPath(cfg.model);
+    const projectorPath = resolveModelPath(cfg.mmproj);
+    if (
+      fs.existsSync(projectorPath) &&
+      projectorMatchesModel(projectorPath, modelPath)
+    ) {
+      cfg.modelProjectors = {
+        ...cfg.modelProjectors,
+        [path.basename(cfg.model)]: cfg.mmproj,
+      };
+    }
+  }
+  cfg.mmproj = '';
   return cfg;
 }
 
 function save(cfg) {
   ensureDirs();
+  const modelProjectors = {};
+  for (const [model, projector] of Object.entries(cfg.modelProjectors || {})) {
+    if (typeof model === 'string' && typeof projector === 'string' && projector) {
+      modelProjectors[model] = projector;
+    }
+  }
   const merged = {
     ...DEFAULTS,
     ...cfg,
+    modelProjectors,
     toolsEnabled: { ...DEFAULT_TOOLS, ...(cfg.toolsEnabled || {}) },
     starredModels: Array.isArray(cfg.starredModels)
       ? [...new Set(cfg.starredModels.filter(n => typeof n === 'string'))]
@@ -156,44 +193,38 @@ function projectorTokens(name) {
     );
 }
 
-/**
- * Find the projector that best matches a model file in the same directory.
- * Returns an absolute path or null.
- */
-function findProjectorFor(modelPath) {
-  if (!modelPath) return null;
-  const dir = path.dirname(modelPath);
-  if (!fs.existsSync(dir)) return null;
-
-  let candidates;
-  try {
-    candidates = fs
-      .readdirSync(dir)
-      .filter(f => isProjectorFile(f) && fs.statSync(path.join(dir, f)).isFile());
-  } catch (e) {
-    return null;
-  }
-  if (candidates.length === 0) return null;
-  if (candidates.length === 1) return path.join(dir, candidates[0]);
-
+/** True when a projector filename clearly belongs to a model filename. */
+function projectorMatchesModel(projectorPath, modelPath) {
+  if (!projectorPath || !modelPath) return false;
   const modelTokens = new Set(projectorTokens(path.basename(modelPath)));
-  let best = null;
-  let bestScore = 0;
-  for (const candidate of candidates) {
-    const score = projectorTokens(candidate).filter(t => modelTokens.has(t)).length;
-    if (score > bestScore) {
-      bestScore = score;
-      best = candidate;
-    }
-  }
-  return bestScore >= 2 ? path.join(dir, best) : null;
+  const projectorTokensList = projectorTokens(path.basename(projectorPath));
+  return projectorTokensList.filter(token => modelTokens.has(token)).length >= 2;
 }
 
-/** Explicit mmproj from config wins; otherwise auto-detect next to the model. */
+/**
+ * Resolve the projector paired with this exact model. A projector is never
+ * shared across models: only the explicit per-model pairing is used.
+ */
 function resolveMmproj(cfg, modelPath) {
+  if (!modelPath) return null;
+  const base = path.basename(modelPath);
+  const paired = cfg && cfg.modelProjectors
+    ? cfg.modelProjectors[base]
+    : null;
+  if (paired) {
+    const projectorPath = resolveModelPath(paired);
+    if (fs.existsSync(projectorPath)) return projectorPath;
+  }
+  // Legacy fallback for an old config that still has the global setting.
   const configured = cfg && cfg.mmproj ? resolveModelPath(cfg.mmproj) : null;
-  if (configured && fs.existsSync(configured)) return configured;
-  return findProjectorFor(modelPath);
+  if (
+    configured &&
+    fs.existsSync(configured) &&
+    projectorMatchesModel(configured, modelPath)
+  ) {
+    return configured;
+  }
+  return null;
 }
 
 // ---- Chat persistence ----
@@ -282,7 +313,7 @@ module.exports = {
   getActiveBase,
   isProjectorFile,
   projectorTokens,
-  findProjectorFor,
+  projectorMatchesModel,
   resolveMmproj,
   contentToText,
   deriveChatTitle,

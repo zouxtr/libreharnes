@@ -48,6 +48,10 @@ interface FormState {
   endpoints: Endpoint[];
 }
 
+function modelBaseName(model: string): string {
+  return model.split(/[\\/]/).pop() || "";
+}
+
 function fromConfig(config: Config): FormState {
   return {
     contextSize: String(config.contextSize ?? 8192),
@@ -55,7 +59,8 @@ function fromConfig(config: Config): FormState {
     llamaPort: String(config.llamaPort ?? 8080),
     gpuLayers: String(config.gpuLayers ?? 99),
     flashAttention: config.flashAttention !== false,
-    mmproj: config.mmproj || "",
+    mmproj:
+      config.modelProjectors?.[modelBaseName(config.model || "")] || "",
     temperature: String(config.temperature ?? 0.7),
     topP: String(config.topP ?? 0.95),
     maxTokens: String(config.maxTokens ?? 2048),
@@ -479,8 +484,8 @@ export function SettingsPage() {
                   label="Vision projector (mmproj)"
                   hint={
                     config.visionReady
-                      ? "A matching projector was detected — image uploads are active."
-                      : "Optional. Auto-detected from a matching mmproj-*.gguf next to the model."
+                      ? "Image uploads are active for the selected model."
+                      : "Applies only to the selected model. Pair projectors with other models on the Models page."
                   }
                 >
                   <select
@@ -488,7 +493,7 @@ export function SettingsPage() {
                     onChange={(e) => update("mmproj", e.target.value)}
                     className="input"
                   >
-                    <option value="">Auto-detect</option>
+                    <option value="">No projector (text only)</option>
                     {projectors.map((p) => (
                       <option key={p.name} value={`models/${p.name}`}>
                         {p.name}

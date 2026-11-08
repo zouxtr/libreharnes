@@ -230,7 +230,8 @@ export function ModelsPage() {
     setBusy(name);
     setError(null);
     try {
-      const choice = projectorChoice[name] ?? "";
+      const model = models.find((entry) => entry.name === name);
+      const choice = projectorChoice[name] ?? model?.projector ?? "";
       const result = await api.loadModel(name, choice);
       await Promise.all([refreshModels(), refreshConfig()]);
       refreshProjectors();
@@ -757,7 +758,7 @@ export function ModelsPage() {
                         {model.vision && (
                           <span
                             className="badge shrink-0 border border-border text-muted-foreground"
-                            title="A vision projector (mmproj) is available"
+                            title="This model is paired with a vision projector (mmproj)"
                           >
                             <Eye className="h-2.5 w-2.5" />
                             Vision
@@ -799,7 +800,7 @@ export function ModelsPage() {
                         <div className="mt-1.5 flex items-center gap-1.5">
                           <Eye className="h-3 w-3 shrink-0 text-muted-foreground" />
                           <select
-                            value={projectorChoice[model.name] ?? ""}
+                            value={projectorChoice[model.name] ?? model.projector ?? ""}
                             onChange={(e) =>
                               setProjectorChoice((prev) => ({
                                 ...prev,
@@ -807,9 +808,9 @@ export function ModelsPage() {
                               }))
                             }
                             className="input h-7 max-w-[280px] text-[10.5px]"
-                            title="Vision projector used when loading this model"
+                            title="Vision projector paired with this model"
                           >
-                            <option value="">Projector: auto-detect</option>
+                            <option value="">No projector (text only)</option>
                             {projectors.map((projector) => (
                               <option
                                 key={projector.name}

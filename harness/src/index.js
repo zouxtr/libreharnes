@@ -20,7 +20,7 @@ const {
   newChatId,
   deriveChatTitle,
   isProjectorFile,
-  findProjectorFor,
+  projectorMatchesModel,
   resolveMmproj,
   contentToText,
 } = require('./config');
@@ -254,6 +254,7 @@ function configResponse() {
     gpuLayers: cfg.gpuLayers,
     flashAttention: cfg.flashAttention !== false,
     mmproj: cfg.mmproj || '',
+    modelProjectors: cfg.modelProjectors || {},
     temperature: cfg.temperature,
     topP: cfg.topP,
     maxTokens: cfg.maxTokens,
@@ -311,6 +312,47 @@ async function handle(req, res) {
       const oldGpuLayers = cfg.gpuLayers;
       const oldFlash = cfg.flashAttention;
       const oldMmproj = cfg.mmproj;
+      const oldProjectors = JSON.stringify(cfg.modelProjectors || {});
+
+      // Older clients send a single global projector. Convert it into a
+      // pairing for the active model instead of applying it to everything.
+      if (Object.prototype.hasOwnProperty.call(body, 'mmproj')) {
+        const selected = String(body.mmproj || '');
+        const activeModel = body.model ? String(body.model) : cfg.model;
+        const activeBase = activeModel ? path.basename(activeModel) : '';
+        const pairings = { ...(cfg.modelProjectors || {}) };
+        if (activeBase) {
+          if (selected) {
+            const projectorPath = resolveModelPath(selected);
+            if (!fs.existsSync(projectorPath)) {
+              return send(res, 404, {
+                error: 'Projector not found: ' + selected,
+              });
+            }
+            const alreadyPaired = pairings[activeBase] === selected;
+            if (
+              !alreadyPaired &&
+              !projectorMatchesModel(
+                projectorPath,
+                resolveModelPath(activeModel),
+              )
+            ) {
+              return send(res, 400, {
+                error:
+                  'That projector does not match ' +
+                  activeBase +
+                  '. Choose the mmproj from the same model family.',
+              });
+            }
+            pairings[activeBase] = selected;
+          } else {
+            delete pairings[activeBase];
+          }
+        }
+        body.modelProjectors = pairings;
+        body.mmproj = '';
+      }
+
       cfg = save({ ...cfg, ...body });
       if (
         cfg.model !== oldModel ||
@@ -319,7 +361,8 @@ async function handle(req, res) {
         cfg.llamaPort !== oldPort ||
         cfg.gpuLayers !== oldGpuLayers ||
         cfg.flashAttention !== oldFlash ||
-        cfg.mmproj !== oldMmproj
+        cfg.mmproj !== oldMmproj ||
+        JSON.stringify(cfg.modelProjectors || {}) !== oldProjectors
       ) {
         stopLlama();
       }
@@ -484,11 +527,14 @@ async function handle(req, res) {
               name: f,
               size,
               sizeStr: formatSize(size),
-              active: cfg.mmproj === 'models/' + f,
+              active: Object.values(cfg.modelProjectors || {}).some(
+                projector => path.basename(projector) === f,
+              ),
               loaded: status.state === 'ready' && status.mmproj === full,
             });
             continue;
           }
+          const pairedProjector = resolveMmproj(cfg, full);
           files.push({
             name: f,
             size,
@@ -496,7 +542,10 @@ async function handle(req, res) {
             active: cfg.model === 'models/' + f,
             loaded: status.state === 'ready' && loadedPath === full,
             starred: (cfg.starredModels || []).includes(f),
-            vision: Boolean(findProjectorFor(full)),
+            vision: Boolean(pairedProjector),
+            projector: pairedProjector
+              ? 'models/' + path.basename(pairedProjector)
+              : '',
             repo: findRepoForModel(f),
           });
         }
@@ -544,9 +593,36 @@ async function handle(req, res) {
       const patch = {
         model: 'models/' + path.basename(modelPath),
         activeEndpoint: 'local',
+        mmproj: '',
       };
       if (Object.prototype.hasOwnProperty.call(body, 'mmproj')) {
-        patch.mmproj = String(body.mmproj || '');
+        const selected = String(body.mmproj || '');
+        const pairings = { ...(cfg.modelProjectors || {}) };
+        if (selected) {
+          const projectorPath = resolveModelPath(selected);
+          if (!fs.existsSync(projectorPath)) {
+            return send(res, 404, {
+              error: 'Projector not found: ' + selected,
+            });
+          }
+          const alreadyPaired =
+            pairings[path.basename(modelPath)] === selected;
+          if (
+            !alreadyPaired &&
+            !projectorMatchesModel(projectorPath, modelPath)
+          ) {
+            return send(res, 400, {
+              error:
+                'That projector does not match ' +
+                path.basename(modelPath) +
+                '. Choose the mmproj from the same model family.',
+            });
+          }
+          pairings[path.basename(modelPath)] = selected;
+        } else {
+          delete pairings[path.basename(modelPath)];
+        }
+        patch.modelProjectors = pairings;
       }
       // Save first: startLlama() reads config.json to resolve the projector.
       cfg = save({ ...cfg, ...patch });
@@ -597,6 +673,12 @@ async function handle(req, res) {
       const patch = {};
       if (cfg.model === 'models/' + base) patch.model = '';
       if (cfg.mmproj === 'models/' + base) patch.mmproj = '';
+      const pairings = { ...(cfg.modelProjectors || {}) };
+      delete pairings[base];
+      for (const [model, projector] of Object.entries(pairings)) {
+        if (path.basename(projector) === base) delete pairings[model];
+      }
+      patch.modelProjectors = pairings;
       if ((cfg.starredModels || []).includes(base)) {
         patch.starredModels = cfg.starredModels.filter(n => n !== base);
       }
@@ -641,6 +723,16 @@ async function handle(req, res) {
         try {
           const match = await findProjector(repo, filename);
           if (!match) return null;
+          // Remember the pairing so this projector is only used with this
+          // model, never with unrelated text models.
+          cfg = save({
+            ...cfg,
+            mmproj: '',
+            modelProjectors: {
+              ...(cfg.modelProjectors || {}),
+              [filename]: 'models/' + match.filename,
+            },
+          });
           if (fs.existsSync(path.join(MODELS_DIR, match.filename))) {
             return { ...match, job: null };
           }
@@ -710,6 +802,15 @@ async function handle(req, res) {
             error: 'No vision projector (mmproj) was found in ' + repo + '.',
           });
         }
+        // Bundle the projector with this exact model.
+        cfg = save({
+          ...cfg,
+          mmproj: '',
+          modelProjectors: {
+            ...(cfg.modelProjectors || {}),
+            [model]: 'models/' + projector.filename,
+          },
+        });
         if (fs.existsSync(path.join(MODELS_DIR, projector.filename))) {
           return send(res, 200, {
             ok: true,

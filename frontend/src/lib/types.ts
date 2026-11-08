@@ -27,8 +27,10 @@ export interface Config {
   /** Number of model layers offloaded to the GPU (99 = all). */
   gpuLayers: number;
   flashAttention: boolean;
-  /** Explicit vision projector (mmproj). Empty = auto-detect. */
+  /** Legacy global projector setting; empty in normal operation. */
   mmproj: string;
+  /** Per-model projector pairing: model filename → mmproj path. */
+  modelProjectors: Record<string, string>;
   temperature: number;
   topP: number;
   maxTokens: number;
@@ -56,8 +58,10 @@ export interface ModelInfo {
   active: boolean;
   loaded: boolean;
   starred: boolean;
-  /** True when a matching vision projector (mmproj) is available. */
+  /** True when this model is paired with a vision projector. */
   vision?: boolean;
+  /** Projector path paired with this model, or empty for text-only. */
+  projector?: string;
   /** Hugging Face repo the file was downloaded from, when known. */
   repo?: string | null;
 }

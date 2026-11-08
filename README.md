@@ -116,8 +116,12 @@ you:
   LibreHarnes looks up the repo recorded in `downloads.json`, finds the matching
   projector, and downloads it. Reload the model afterwards.
 - You can still pick a projector manually under **Settings → Local runtime →
-  Vision projector** or per model on the Models page. Models with a detected
+  Vision projector** or per model on the Models page. Models paired with a
   projector show a **Vision** badge.
+
+Projectors are paired with a single model, never shared globally. Loading a
+text model will not pass an `mmproj`, so a leftover projector for another model
+cannot break it.
 
 Upload an image with the paperclip button in chat — it is downscaled to at most
 1400 px and sent as a base64 `image_url` part to local or external
@@ -209,8 +213,9 @@ can also copy `config.json.example` and edit it:
 - Any other name routes requests to that OpenAI-compatible endpoint.
 - `gpuLayers` is passed to llama.cpp as `-ngl`; `99` offloads every layer.
 - `flashAttention` adds `--flash-attn`.
-- `mmproj` is an optional explicit projector path. When empty, a matching
-  `mmproj-*.gguf` next to the model is used automatically.
+- `modelProjectors` maps each model filename to its own `mmproj-*.gguf` path.
+  A projector is only passed to the model it was paired with. `mmproj` is a
+  legacy single-projector setting that is migrated into `modelProjectors`.
 
 ### OpenAI-compatible API
 
