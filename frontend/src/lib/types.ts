@@ -58,6 +58,8 @@ export interface ModelInfo {
   starred: boolean;
   /** True when a matching vision projector (mmproj) is available. */
   vision?: boolean;
+  /** Hugging Face repo the file was downloaded from, when known. */
+  repo?: string | null;
 }
 
 export interface ChatSummary {
@@ -153,6 +155,13 @@ export interface HfResult {
 export interface HfFile {
   filename: string;
   size: number;
+}
+
+export interface ProjectorInfo {
+  filename: string;
+  size: number;
+  /** Download job for the projector, or null when it is already saved. */
+  job?: DownloadJob | null;
 }
 
 export interface DownloadJob {

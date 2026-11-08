@@ -283,11 +283,46 @@ export function ModelsPage() {
   const startDownload = async (repo: string, filename: string) => {
     setError(null);
     try {
-      const { job } = await api.startDownload(repo, filename);
-      setJobs((prev) => ({ ...prev, [job.id]: job }));
-      toast(`Downloading ${filename}`, "info");
+      const { job, projector } = await api.startDownload(repo, filename);
+      const projectorJob = projector?.job;
+      setJobs((prev) => {
+        const next = { ...prev, [job.id]: job };
+        if (projectorJob) next[projectorJob.id] = projectorJob;
+        return next;
+      });
+      if (projectorJob) {
+        toast(
+          `Downloading ${filename} with its vision projector`,
+          "info",
+        );
+      } else if (projector) {
+        toast(`Downloading ${filename} — vision projector already saved`, "info");
+      } else {
+        toast(`Downloading ${filename}`, "info");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const addVision = async (model: ModelInfo) => {
+    setBusy(model.name);
+    setError(null);
+    try {
+      const { projector } = await api.addVision(model.name);
+      const projectorJob = projector.job;
+      if (projectorJob) {
+        setJobs((prev) => ({ ...prev, [projectorJob.id]: projectorJob }));
+        toast(`Downloading vision projector ${projector.filename}`, "info");
+      } else {
+        toast("Vision projector is already saved — reload the model", "info");
+        await Promise.all([refreshModels(), refreshConfig()]);
+        refreshProjectors();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -436,7 +471,7 @@ export function ModelsPage() {
         onClick={() => void startDownload(repo, file.filename)}
       >
         <Download className="h-3 w-3" />
-        Get
+        {isProjector ? "Get projector" : "Get"}
       </button>
     );
   };
@@ -718,6 +753,22 @@ export function ModelsPage() {
                             Vision
                           </span>
                         )}
+                        {!model.vision && model.repo && (
+                          <button
+                            type="button"
+                            className="badge shrink-0 border border-border text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+                            onClick={() => void addVision(model)}
+                            disabled={!!busy}
+                            title="Download the matching vision projector (mmproj) from Hugging Face"
+                          >
+                            {busy === model.name ? (
+                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                            ) : (
+                              <Eye className="h-2.5 w-2.5" />
+                            )}
+                            Add vision
+                          </button>
+                        )}
                       </div>
                       <div className="mt-0.5 flex items-center gap-2 text-[10.5px] text-muted-foreground">
                         <span className="font-mono">{model.name}</span>
@@ -929,9 +980,20 @@ export function ModelsPage() {
                                   className="flex flex-wrap items-center gap-2 py-2"
                                 >
                                   <div className="min-w-0 flex-1">
-                                    <p className="truncate font-mono text-[11.5px] text-foreground">
-                                      {file.filename}
-                                    </p>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <p className="truncate font-mono text-[11.5px] text-foreground">
+                                        {file.filename}
+                                      </p>
+                                      {/mmproj/i.test(file.filename) && (
+                                        <span
+                                          className="badge shrink-0 border border-border text-muted-foreground"
+                                          title="Vision projector — pairs with a model in this repository"
+                                        >
+                                          <Eye className="h-2.5 w-2.5" />
+                                          Vision projector
+                                        </span>
+                                      )}
+                                    </div>
                                     <p className="text-[10.5px] text-muted-foreground">
                                       {file.size > 0
                                         ? formatBytes(file.size)

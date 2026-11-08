@@ -36,6 +36,8 @@ const {
 const {
   searchModels,
   listGgufFiles,
+  findProjector,
+  findRepoForModel,
   startDownload,
   downloadGguf,
   getJob,
@@ -495,6 +497,7 @@ async function handle(req, res) {
             loaded: status.state === 'ready' && loadedPath === full,
             starred: (cfg.starredModels || []).includes(f),
             vision: Boolean(findProjectorFor(full)),
+            repo: findRepoForModel(f),
           });
         }
       }
@@ -629,19 +632,102 @@ async function handle(req, res) {
 
     if (pathname === '/api/hf/download' && req.method === 'POST') {
       const body = await readJson(req);
-      const { repo, filename, sync } = body;
+      const { repo, filename, sync, withProjector } = body;
       if (!repo || !filename) return send(res, 400, { error: 'repo and filename required' });
+
+      // Pair vision models with the matching mmproj from the same repo.
+      const startProjector = async () => {
+        if (withProjector === false || isProjectorFile(filename)) return null;
+        try {
+          const match = await findProjector(repo, filename);
+          if (!match) return null;
+          if (fs.existsSync(path.join(MODELS_DIR, match.filename))) {
+            return { ...match, job: null };
+          }
+          return { ...match, job: startDownload(repo, match.filename) };
+        } catch (e) {
+          // A missing projector must not block the model download.
+          return null;
+        }
+      };
+
       if (sync) {
         try {
           const result = await downloadGguf(repo, filename);
+          const projector = await startProjector();
           cfg = save({ ...cfg, model: 'models/' + filename, activeEndpoint: 'local' });
-          return send(res, 200, { ok: true, path: result.path, size: result.size });
+          return send(res, 200, {
+            ok: true,
+            path: result.path,
+            size: result.size,
+            projector,
+          });
         } catch (e) {
           return send(res, 500, { error: e.message });
         }
       }
       const job = startDownload(repo, filename);
-      return send(res, 200, { ok: true, job });
+      const projector = await startProjector();
+      return send(res, 200, { ok: true, job, projector });
+    }
+
+    if (pathname === '/api/hf/projector' && req.method === 'GET') {
+      const { repo, filename } = parsed.query;
+      if (!repo || !filename) {
+        return send(res, 400, { error: 'repo and filename required' });
+      }
+      try {
+        const projector = await findProjector(repo, filename);
+        return send(res, 200, { repo, model: filename, projector });
+      } catch (e) {
+        return send(res, 500, { error: e.message });
+      }
+    }
+
+    if (pathname === '/api/hf/projector' && req.method === 'POST') {
+      const body = await readJson(req);
+      const requested = body.model || body.filename;
+      if (!requested) return send(res, 400, { error: 'model required' });
+      const model = path.basename(String(requested));
+      if (isProjectorFile(model)) {
+        return send(res, 400, {
+          error: 'That file is already a vision projector.',
+        });
+      }
+      const repo = body.repo || findRepoForModel(model);
+      if (!repo) {
+        return send(res, 404, {
+          error:
+            'No Hugging Face repository is recorded for ' +
+            model +
+            '. Download it from Discover to enable vision.',
+        });
+      }
+      try {
+        const projector = await findProjector(repo, model);
+        if (!projector) {
+          return send(res, 404, {
+            error: 'No vision projector (mmproj) was found in ' + repo + '.',
+          });
+        }
+        if (fs.existsSync(path.join(MODELS_DIR, projector.filename))) {
+          return send(res, 200, {
+            ok: true,
+            repo,
+            model,
+            projector: { ...projector, job: null },
+          });
+        }
+        const job = startDownload(repo, projector.filename);
+        return send(res, 200, {
+          ok: true,
+          repo,
+          model,
+          projector: { ...projector, job },
+        });
+      } catch (e) {
+        return send(res, 500, { error: e.message });
+      }
     }
 
     if (pathname === '/api/hf/jobs' && req.method === 'GET') {

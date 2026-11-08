@@ -106,14 +106,23 @@ reinstall with the CPU-only build (or set **GPU layers** to `0` in Settings).
 ### Vision models
 
 To let a model actually see uploaded images you need both a vision-capable model
-and its **multimodal projector** (`mmproj-*.gguf`). Download both from the same
-Hugging Face repo (for example a `*-vision` or `gemma-3` GGUF repo) into
-`models/`. LibreHarnes auto-detects a matching `mmproj-*.gguf` next to the
-selected model; you can also pick one explicitly under **Settings → Local
-runtime → Vision projector** or per model on the Models page. Models with a
-detected projector show a **Vision** badge. Upload an image with the paperclip
-button in chat — it is downscaled to at most 1400 px and sent as a base64
-`image_url` part to local or external OpenAI-compatible endpoints.
+and its **multimodal projector** (`mmproj-*.gguf`). LibreHarnes handles this for
+you:
+
+- When you download a model from **Discover**, it also downloads the matching
+  projector from the same Hugging Face repo when one exists. Projectors are
+  listed first and marked **Vision projector**.
+- For a model that is already on disk, click **Add vision** on the Models page.
+  LibreHarnes looks up the repo recorded in `downloads.json`, finds the matching
+  projector, and downloads it. Reload the model afterwards.
+- You can still pick a projector manually under **Settings → Local runtime →
+  Vision projector** or per model on the Models page. Models with a detected
+  projector show a **Vision** badge.
+
+Upload an image with the paperclip button in chat — it is downscaled to at most
+1400 px and sent as a base64 `image_url` part to local or external
+OpenAI-compatible endpoints. If a vision model was loaded without its projector,
+chat warns you instead of silently answering from text alone.
 
 ## Using LibreHarnes
 

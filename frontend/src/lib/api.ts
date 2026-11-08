@@ -7,6 +7,7 @@ import type {
   HfResult,
   LlamaStatus,
   ModelInfo,
+  ProjectorInfo,
   SystemInfo,
   ThinkingEffort,
   ToolInfo,
@@ -149,10 +150,26 @@ export const api = {
       `/api/hf/files?repo=${encodeURIComponent(repo)}`,
     ),
   startDownload: (repo: string, filename: string) =>
-    request<{ ok: boolean; job: DownloadJob }>(
-      "/api/hf/download",
-      json({ repo, filename }),
+    request<{
+      ok: boolean;
+      job: DownloadJob;
+      projector?: ProjectorInfo | null;
+    }>("/api/hf/download", json({ repo, filename })),
+  getProjector: (repo: string, filename: string) =>
+    request<{
+      repo: string;
+      model: string;
+      projector: { filename: string; size: number } | null;
+    }>(
+      `/api/hf/projector?repo=${encodeURIComponent(repo)}&filename=${encodeURIComponent(filename)}`,
     ),
+  addVision: (model: string) =>
+    request<{
+      ok: boolean;
+      repo: string;
+      model: string;
+      projector: ProjectorInfo;
+    }>("/api/hf/projector", json({ model })),
   getJob: (id: string) =>
     request<{ job: DownloadJob }>(`/api/hf/jobs/${id}`),
   getJobs: () => request<{ jobs: DownloadJob[] }>("/api/hf/jobs"),

@@ -6,7 +6,12 @@
 const fetch = globalThis.fetch;
 const fs = require('fs');
 const path = require('path');
-const { ROOT, MODELS_DIR } = require('./config');
+const {
+  ROOT,
+  MODELS_DIR,
+  isProjectorFile,
+  projectorTokens,
+} = require('./config');
 
 const HF_API = 'https://huggingface.co/api';
 const DOWNLOADS_FILE = path.join(ROOT, 'downloads.json');
@@ -76,7 +81,69 @@ async function listGgufFiles(repo) {
       filename: s.rfilename,
       size: s.size || (s.lfs && s.lfs.size) || 0,
     }))
-    .sort((a, b) => a.filename.localeCompare(b.filename));
+    .sort((a, b) => {
+      // Vision projectors pair with a model, so list them first.
+      const aProjector = isProjectorFile(a.filename);
+      const bProjector = isProjectorFile(b.filename);
+      if (aProjector !== bProjector) return aProjector ? -1 : 1;
+      return a.filename.localeCompare(b.filename);
+    });
+}
+
+function quantTag(name) {
+  const match = String(name || '').match(/\b(iq\d+_[a-z0-9_]+|q\d+_[a-z0-9_]+|q\d+)\b/i);
+  return match ? match[1].toLowerCase() : '';
+}
+
+/**
+ * Pick the projector from a repository file list that best matches a model.
+ * Prefers the model's own quantization, then compact high-quality variants,
+ * and avoids multi-gigabyte F16/BF16 projectors when a smaller one exists.
+ * Returns { filename, size } or null.
+ */
+function pickProjector(files, modelFilename) {
+  const projectors = (files || []).filter(file =>
+    isProjectorFile(file.filename || file),
+  );
+  if (projectors.length === 0) return null;
+  if (projectors.length === 1) return projectors[0];
+
+  const modelTokens = new Set(projectorTokens(modelFilename));
+  const modelQuant = quantTag(modelFilename);
+  let best = null;
+  let bestScore = -Infinity;
+  let bestTokens = 0;
+  for (const projector of projectors) {
+    const tokens = projectorTokens(projector.filename);
+    const tokenScore = tokens.filter(token => modelTokens.has(token)).length;
+    let score = tokenScore * 10;
+    if (modelQuant && quantTag(projector.filename) === modelQuant) score += 50;
+    if (/q8_0/i.test(projector.filename)) score += 5;
+    else if (/q4_k_m/i.test(projector.filename)) score += 4;
+    else if (/q4_0/i.test(projector.filename)) score += 3;
+    else if (/f16|bf16/i.test(projector.filename)) score -= 10;
+    if (score > bestScore) {
+      bestScore = score;
+      bestTokens = tokenScore;
+      best = projector;
+    }
+  }
+  return bestTokens >= 2 ? best : null;
+}
+
+/** Find the matching vision projector for a model in a Hugging Face repo. */
+async function findProjector(repo, modelFilename) {
+  if (!repo || !modelFilename || isProjectorFile(modelFilename)) return null;
+  const files = await listGgufFiles(repo);
+  return pickProjector(files, modelFilename);
+}
+
+/** Repo recorded for a previously downloaded model, if any. */
+function findRepoForModel(filename) {
+  const matches = [...jobs.values()]
+    .filter(job => job.filename === filename && job.repo)
+    .sort((a, b) => b.startedAt - a.startedAt);
+  return matches.length > 0 ? matches[0].repo : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -379,6 +446,9 @@ function formatSize(bytes) {
 module.exports = {
   searchModels,
   listGgufFiles,
+  pickProjector,
+  findProjector,
+  findRepoForModel,
   startDownload,
   downloadGguf,
   getJob,

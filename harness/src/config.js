@@ -281,6 +281,7 @@ module.exports = {
   resolveModelPath,
   getActiveBase,
   isProjectorFile,
+  projectorTokens,
   findProjectorFor,
   resolveMmproj,
   contentToText,
