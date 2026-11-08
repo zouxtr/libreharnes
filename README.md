@@ -212,7 +212,7 @@ can also copy `config.json.example` and edit it:
 - `activeEndpoint: "local"` uses llama.cpp and your downloaded GGUF.
 - Any other name routes requests to that OpenAI-compatible endpoint.
 - `gpuLayers` is passed to llama.cpp as `-ngl`; `99` offloads every layer.
-- `flashAttention` adds `--flash-attn`.
+- `flashAttention` is passed to llama.cpp as `--flash-attn on|off`.
 - `modelProjectors` maps each model filename to its own `mmproj-*.gguf` path.
   A projector is only passed to the model it was paired with. `mmproj` is a
   legacy single-projector setting that is migrated into `modelProjectors`.

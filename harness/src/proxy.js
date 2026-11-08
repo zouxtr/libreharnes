@@ -309,7 +309,9 @@ async function startLlama(modelPath) {
       '--port', String(port),
       '--jinja',
     ];
-    if (flashAttention) args.push('--flash-attn');
+    // --flash-attn takes a value (on|off|auto). Passing it bare makes
+    // llama-server exit on argument parsing, which looked like a GPU failure.
+    args.push('--flash-attn', flashAttention ? 'on' : 'off');
     if (mmproj) args.push('--mmproj', mmproj);
     if (cfg.localApiKey) args.push('--api-key', cfg.localApiKey);
     return args;
