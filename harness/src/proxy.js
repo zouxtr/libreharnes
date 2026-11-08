@@ -108,6 +108,9 @@ let llamaMmprojPath = null;
 let llamaState = 'stopped'; // stopped | starting | ready | error
 let llamaError = null;
 let llamaLog = '';
+let llamaWarning = null;
+let llamaGpuLayers = null;
+let llamaFlashAttention = null;
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
@@ -123,6 +126,9 @@ function stopLlama() {
   llamaState = 'stopped';
   llamaError = null;
   llamaLog = '';
+  llamaWarning = null;
+  llamaGpuLayers = null;
+  llamaFlashAttention = null;
 }
 
 function llamaStatus() {
@@ -131,12 +137,129 @@ function llamaStatus() {
     model: llamaModelPath,
     mmproj: llamaMmprojPath,
     error: llamaError,
+    warning: llamaWarning,
+    gpuLayers: llamaGpuLayers,
+    flashAttention: llamaFlashAttention,
+    cpuFallback: llamaGpuLayers === 0 && llamaWarning !== null,
   };
+}
+
+function logTail(log, max = 1500) {
+  const text = String(log || '').trim();
+  return text ? '\n\n' + text.slice(-max) : '';
+}
+
+/**
+ * Turn a raw llama-server failure into a message that explains what the user
+ * can do. Windows GPU builds commonly fail because Vulkan (or one of its
+ * DLLs) is unavailable, which used to surface as an opaque crash.
+ */
+function friendlyLlamaFailure(message, code, log) {
+  const tail = logTail(log);
+  if (process.platform === 'win32') {
+    if (code === -1073741515 || code === 3221225781) {
+      return (
+        'llama-server could not start because a required DLL is missing. ' +
+        'Update your graphics driver, or reinstall LibreHarnes with the CPU-only build.' +
+        tail
+      );
+    }
+    if (
+      /vulkan/i.test(log || '') &&
+      /(no vulkan|not found|failed to initialize|could not find|error)/i.test(log || '')
+    ) {
+      return (
+        'The GPU (Vulkan) build of llama.cpp could not initialize on this PC. ' +
+        'LibreHarnes will try the CPU instead.' +
+        tail
+      );
+    }
+  }
+  return message + tail;
 }
 
 function enabledTools(cfg) {
   const map = cfg.toolsEnabled || {};
   return TOOL_SCHEMA.filter(t => map[t.function.name] !== false);
+}
+
+/** Start llama-server with the given arguments and wait until it is healthy. */
+async function launchLlama(server, args, base) {
+  let spawnError = null;
+
+  llamaState = 'starting';
+  llamaError = null;
+  llamaLog = '';
+
+  const proc = spawn(server, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  llamaProc = proc;
+
+  const append = d => {
+    llamaLog += d.toString();
+    if (llamaLog.length > 20000) llamaLog = llamaLog.slice(-20000);
+  };
+  proc.stdout.on('data', append);
+  proc.stderr.on('data', append);
+  proc.on('error', err => {
+    spawnError = err;
+    append(Buffer.from('spawn error: ' + err.message + '\n'));
+  });
+
+  proc.on('exit', code => {
+    if (llamaProc === proc) {
+      llamaProc = null;
+      if (llamaState !== 'stopped') {
+        llamaState = 'error';
+        if (!llamaError) {
+          llamaError = friendlyLlamaFailure(
+            'llama-server exited with code ' + code,
+            code,
+            llamaLog,
+          );
+        }
+      }
+    }
+  });
+
+  // Wait for the server to become healthy (model loading can take a while on CPU).
+  for (let i = 0; i < 300; i++) {
+    if (spawnError) {
+      throw new Error(
+        friendlyLlamaFailure(
+          'Could not start llama-server: ' + spawnError.message,
+          null,
+          llamaLog,
+        ),
+      );
+    }
+    if (proc.exitCode !== null) {
+      throw new Error(
+        friendlyLlamaFailure(
+          'llama-server exited while loading the model (code ' + proc.exitCode + ')',
+          proc.exitCode,
+          llamaLog,
+        ),
+      );
+    }
+    try {
+      const res = await fetch(base + '/health');
+      if (res.ok) {
+        llamaState = 'ready';
+        return llamaStatus();
+      }
+    } catch (e) {
+      // not ready yet
+    }
+    await sleep(500);
+  }
+
+  throw new Error(
+    friendlyLlamaFailure(
+      'Timed out waiting for llama-server to load the model.',
+      null,
+      llamaLog,
+    ),
+  );
 }
 
 async function startLlama(modelPath) {
@@ -170,75 +293,78 @@ async function startLlama(modelPath) {
 
   const port = cfg.llamaPort || 8080;
   const base = 'http://127.0.0.1:' + port;
-  const gpuLayers =
+  const configuredGpuLayers =
     Number.isFinite(Number(cfg.gpuLayers)) && cfg.gpuLayers !== null
       ? Number(cfg.gpuLayers)
       : 99;
-  const args = [
-    '-m', modelPath,
-    '-c', String(cfg.contextSize || 8192),
-    '--threads', String(cfg.threads || 6),
-    '-ngl', String(gpuLayers),
-    '--host', '127.0.0.1',
-    '--port', String(port),
-    '--jinja',
-  ];
-  if (cfg.flashAttention !== false) args.push('--flash-attn');
-  if (mmproj) args.push('--mmproj', mmproj);
-  if (cfg.localApiKey) args.push('--api-key', cfg.localApiKey);
+  const configuredFlash = cfg.flashAttention !== false;
 
+  const argsFor = (gpuLayers, flashAttention) => {
+    const args = [
+      '-m', modelPath,
+      '-c', String(cfg.contextSize || 8192),
+      '--threads', String(cfg.threads || 6),
+      '-ngl', String(gpuLayers),
+      '--host', '127.0.0.1',
+      '--port', String(port),
+      '--jinja',
+    ];
+    if (flashAttention) args.push('--flash-attn');
+    if (mmproj) args.push('--mmproj', mmproj);
+    if (cfg.localApiKey) args.push('--api-key', cfg.localApiKey);
+    return args;
+  };
+
+  llamaModelPath = modelPath;
   llamaMmprojPath = mmproj;
 
-  llamaState = 'starting';
-  llamaError = null;
-  llamaLog = '';
-  llamaModelPath = modelPath;
+  try {
+    await launchLlama(
+      server,
+      argsFor(configuredGpuLayers, configuredFlash),
+      base,
+    );
+    llamaGpuLayers = configuredGpuLayers;
+    llamaFlashAttention = configuredFlash;
+    llamaWarning = null;
+    return llamaStatus();
+  } catch (primaryError) {
+    const primaryMessage = primaryError.message;
 
-  const proc = spawn(server, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-  llamaProc = proc;
-
-  const append = d => {
-    llamaLog += d.toString();
-    if (llamaLog.length > 20000) llamaLog = llamaLog.slice(-20000);
-  };
-  proc.stdout.on('data', append);
-  proc.stderr.on('data', append);
-
-  proc.on('exit', code => {
-    if (llamaProc === proc) {
-      llamaProc = null;
-      if (llamaState !== 'stopped') {
-        llamaState = 'error';
-        if (!llamaError) {
-          llamaError = 'llama-server exited with code ' + code + (llamaLog ? '\n' + llamaLog.slice(-1500) : '');
-        }
-      }
-    }
-  });
-
-  // Wait for the server to become healthy (model loading can take a while on CPU).
-  for (let i = 0; i < 300; i++) {
-    if (proc.exitCode !== null) {
+    // A CPU-only install (or an explicit gpuLayers: 0) has nothing to retry.
+    if (configuredGpuLayers <= 0) {
+      stopLlama();
       llamaState = 'error';
-      llamaError = llamaError || 'llama-server exited while loading the model.\n' + llamaLog.slice(-1500);
+      llamaError = primaryMessage;
+      throw primaryError;
+    }
+
+    // GPU offload can fail for reasons outside the model: missing Vulkan
+    // runtime, an outdated driver, or not enough VRAM. The Vulkan build also
+    // contains the CPU backend, so retry with GPU offload disabled instead of
+    // leaving the user with a raw crash.
+    stopLlama();
+    llamaModelPath = modelPath;
+    llamaMmprojPath = mmproj;
+
+    try {
+      await launchLlama(server, argsFor(0, false), base);
+      llamaGpuLayers = 0;
+      llamaFlashAttention = false;
+      llamaWarning =
+        'GPU acceleration failed, so the model was loaded on the CPU. ' +
+        'Update your graphics driver, or reinstall LibreHarnes with the CPU-only build to skip this retry.';
+      return llamaStatus();
+    } catch (fallbackError) {
+      stopLlama();
+      llamaState = 'error';
+      llamaError =
+        'The model could not be loaded with the GPU or the CPU.\n\n' +
+        'GPU attempt: ' + primaryMessage + '\n\n' +
+        'CPU attempt: ' + fallbackError.message;
       throw new Error(llamaError);
     }
-    try {
-      const res = await fetch(base + '/health');
-      if (res.ok) {
-        llamaState = 'ready';
-        return llamaStatus();
-      }
-    } catch (e) {
-      // not ready yet
-    }
-    await sleep(500);
   }
-
-  stopLlama();
-  llamaState = 'error';
-  llamaError = 'Timed out waiting for llama-server to load the model.\n' + llamaLog.slice(-1500);
-  throw new Error(llamaError);
 }
 
 async function ensureLlamaServer(modelPath) {

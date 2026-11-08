@@ -41,10 +41,9 @@ shortcut. Start it from there, or run `libreharnes.cmd` in the install folder.
 ### What the installer does
 
 1. Downloads the app source from GitHub.
-2. Downloads a matching prebuilt llama.cpp release into `llama.cpp/build/bin/`.
-   The backend is auto-detected: **Vulkan** when a GPU is present, otherwise
-   **CPU** (macOS uses Metal). An existing CPU-only install is upgraded to
-   Vulkan automatically.
+2. Asks whether to install the llama.cpp runtime. If you say yes, it asks which
+   build you want: **CPU only** or **GPU optimised** (Vulkan on Windows/Linux,
+   Metal on macOS). It does not silently auto-detect during install.
 3. Creates a `libreharnes` command (and a desktop entry on Linux).
 
 It does **not** download any models. You choose those inside the app.
@@ -53,6 +52,17 @@ Re-running the same `curl` command updates the application. Models, chats,
 uploads, and settings are kept: the installer only copies app files and skips
 `models/`, `chats/`, `sandbox/`, `llama.cpp/`, `config.json`, and
 `downloads.json`.
+
+For unattended installs, skip the prompts with environment variables:
+
+```bash
+LIBREHARNES_LLAMA_BACKEND=cpu curl -fsSL .../install.sh | bash
+LIBREHARNES_LLAMA_BACKEND=gpu curl -fsSL .../install.sh | bash
+LIBREHARNES_SKIP_LLAMA=1     curl -fsSL .../install.sh | bash
+```
+
+On Windows use `$env:LIBREHARNES_LLAMA_BACKEND = "cpu"` (or `"gpu"`) before
+running the installer, or set `LIBREHARNES_SKIP_LLAMA=1`.
 
 ### Manual install
 
@@ -69,8 +79,8 @@ If a prebuilt llama.cpp is not available for your platform, build it with
 
 ### GPU acceleration
 
-`scripts/setup-llama.js` detects your GPU and installs the matching llama.cpp
-build. You can force a backend:
+The installers ask which build to install. Manual setup auto-detects the
+hardware, and you can always force a backend:
 
 ```bash
 node scripts/setup-llama.js --gpu        # Vulkan (AMD, Intel Arc, NVIDIA)
@@ -80,12 +90,18 @@ node scripts/setup-llama.js --dry-run    # show the selected asset
 npm run setup:gpu                        # force-reinstall the Vulkan build
 ```
 
-`LIBREHARNES_LLAMA_BACKEND=auto|vulkan|cpu|metal` does the same via the
+`LIBREHARNES_LLAMA_BACKEND=auto|gpu|cpu|vulkan|metal` does the same via the
 environment. GPU offload is controlled by `gpuLayers` (`99` = all layers,
 `0` = CPU only) and `flashAttention` in Settings. On an 8 GB card such as an
 **RX 7600**, a 7–8B model at Q4_K_M fits comfortably; start with `gpuLayers`
 around 99 and lower it if the model fails to load or the driver runs out of
 VRAM. Flash attention is recommended on Vulkan.
+
+If the GPU build cannot start — for example a missing Vulkan runtime, an
+outdated driver, or not enough VRAM — LibreHarnes automatically retries the same
+model on the CPU with GPU offload disabled. The Models page shows a notice when
+this happens, and the model still works. For a permanently CPU-only setup,
+reinstall with the CPU-only build (or set **GPU layers** to `0` in Settings).
 
 ### Vision models
 

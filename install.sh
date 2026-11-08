@@ -7,7 +7,8 @@
 #   LIBREHARNES_DIR   install directory (default: ~/.libreharnes)
 #   LIBREHARNES_BIN   command directory   (default: ~/.local/bin)
 #   LIBREHARNES_SKIP_LLAMA=1   do not download llama.cpp
-#   LIBREHARNES_LLAMA_BACKEND=auto|vulkan|cpu   llama.cpp build to install
+#   LIBREHARNES_LLAMA_BACKEND=cpu|gpu|auto|vulkan|metal
+#                              choose the llama.cpp build without prompting
 
 set -euo pipefail
 
@@ -27,6 +28,36 @@ fail() {
 
 need() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 is required but was not found."
+}
+
+# Prompts must read from the terminal, not stdin: with `curl | bash` stdin is
+# the script itself, so a plain `read` would consume the rest of the installer.
+can_prompt() {
+  [ -r /dev/tty ] && [ -w /dev/tty ]
+}
+
+ask_yes_no() {
+  local prompt="$1" default="$2" answer=""
+  printf '%s' "$prompt" > /dev/tty
+  IFS= read -r answer < /dev/tty || answer=""
+  answer="${answer:-$default}"
+  case "$answer" in
+    [yY]*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+ask_backend() {
+  local answer=""
+  printf '%s' "Which llama.cpp build should be installed?
+  1) CPU only
+  2) GPU optimised (Vulkan on Windows/Linux, Metal on macOS)
+Choice [2]: " > /dev/tty
+  IFS= read -r answer < /dev/tty || answer=""
+  case "${answer:-2}" in
+    1|cpu|CPU) printf 'cpu' ;;
+    *) printf 'gpu' ;;
+  esac
 }
 
 say ""
@@ -80,12 +111,43 @@ tar -C "$SRC_DIR" \
   -cf - . | tar -C "$INSTALL_DIR" -xf -
 say "Installed app files to $INSTALL_DIR"
 
-if [ "${LIBREHARNES_SKIP_LLAMA:-0}" != "1" ]; then
-  say ""
-  say "Installing llama.cpp (GPU auto-detect: Vulkan when available)…"
-  (cd "$INSTALL_DIR" && node scripts/setup-llama.js)
-else
+LLAMA_BACKEND=""
+if [ "${LIBREHARNES_SKIP_LLAMA:-0}" = "1" ]; then
   say "Skipping llama.cpp download (LIBREHARNES_SKIP_LLAMA=1)."
+elif [ -n "${LIBREHARNES_LLAMA_BACKEND:-}" ]; then
+  LLAMA_BACKEND="${LIBREHARNES_LLAMA_BACKEND}"
+  case "$LLAMA_BACKEND" in
+    auto|cpu|gpu|vulkan|metal) ;;
+    *)
+      fail "LIBREHARNES_LLAMA_BACKEND must be auto, cpu, gpu, vulkan, or metal."
+      ;;
+  esac
+elif can_prompt; then
+  say ""
+  if ask_yes_no "Install the llama.cpp runtime now? [Y/n] " "y"; then
+    LLAMA_BACKEND="$(ask_backend)"
+  else
+    say "Skipping llama.cpp. You can install it later with:"
+    say "  cd \"$INSTALL_DIR\" && node scripts/setup-llama.js"
+  fi
+else
+  say ""
+  say "No terminal available to ask about llama.cpp, so it was skipped."
+  say "Re-run interactively, or set LIBREHARNES_LLAMA_BACKEND=cpu|gpu."
+fi
+
+if [ -n "$LLAMA_BACKEND" ]; then
+  say ""
+  case "$LLAMA_BACKEND" in
+    cpu) say "Installing llama.cpp (CPU only)…" ;;
+    gpu) say "Installing llama.cpp (GPU optimised)…" ;;
+    *) say "Installing llama.cpp ($LLAMA_BACKEND)…" ;;
+  esac
+  SETUP_ARGS=()
+  if [ "$LLAMA_BACKEND" != "auto" ]; then
+    SETUP_ARGS+=("--$LLAMA_BACKEND")
+  fi
+  (cd "$INSTALL_DIR" && node scripts/setup-llama.js "${SETUP_ARGS[@]}")
 fi
 
 mkdir -p "$BIN_DIR"

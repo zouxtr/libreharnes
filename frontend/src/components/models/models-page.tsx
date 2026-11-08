@@ -221,10 +221,14 @@ export function ModelsPage() {
     setError(null);
     try {
       const choice = projectorChoice[name] ?? "";
-      await api.loadModel(name, choice);
+      const result = await api.loadModel(name, choice);
       await Promise.all([refreshModels(), refreshConfig()]);
       refreshProjectors();
-      toast(`Loaded ${shortModelName(name)}`, "success");
+      if (result.status?.warning) {
+        toast(result.status.warning, "info");
+      } else {
+        toast(`Loaded ${shortModelName(name)}`, "success");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

@@ -40,6 +40,10 @@ export interface Config {
   loaded: boolean;
   llamaState: "stopped" | "starting" | "ready" | "error";
   llamaError: string | null;
+  /** Set when the GPU failed and the model was loaded on the CPU instead. */
+  llamaWarning?: string | null;
+  llamaGpuLayers?: number | null;
+  llamaCpuFallback?: boolean;
   loadedMmproj?: string;
   /** True when the selected model has a usable vision projector. */
   visionReady?: boolean;
@@ -188,7 +192,12 @@ export interface SystemInfo {
 export interface LlamaStatus {
   state: "stopped" | "starting" | "ready" | "error";
   model: string | null;
+  mmproj?: string | null;
   error: string | null;
+  warning?: string | null;
+  gpuLayers?: number | null;
+  flashAttention?: boolean | null;
+  cpuFallback?: boolean;
   loaded: boolean;
 }
 

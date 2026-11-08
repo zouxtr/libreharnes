@@ -262,6 +262,9 @@ function configResponse() {
     loaded: status.state === 'ready',
     llamaState: status.state,
     llamaError: status.error,
+    llamaWarning: status.warning || null,
+    llamaGpuLayers: status.gpuLayers,
+    llamaCpuFallback: !!status.cpuFallback,
     loadedMmproj: status.mmproj || '',
     visionReady: Boolean(
       cfg.model &&
@@ -504,6 +507,9 @@ async function handle(req, res) {
         active: cfg.model,
         llamaState: status.state,
         llamaError: status.error,
+        llamaWarning: status.warning || null,
+        llamaGpuLayers: status.gpuLayers,
+        llamaCpuFallback: !!status.cpuFallback,
         loadedMmproj: status.mmproj || '',
       });
     }

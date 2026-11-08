@@ -551,6 +551,11 @@ export function SettingsPage() {
                     <Eye className="h-2.5 w-2.5" />
                     {config.visionReady ? "Vision ready" : "Vision off"}
                   </span>
+                  {config.llamaCpuFallback && (
+                    <span className="inline-flex items-center gap-1 rounded border border-warning/40 px-1.5 py-0.5 text-warning">
+                      CPU fallback
+                    </span>
+                  )}
                   {config.loadedMmproj && (
                     <span
                       className="truncate"
@@ -560,6 +565,11 @@ export function SettingsPage() {
                     </span>
                   )}
                 </div>
+                {config.llamaWarning && (
+                  <p className="mt-1.5 text-[10.5px] leading-relaxed text-warning">
+                    {config.llamaWarning}
+                  </p>
+                )}
                 {config.llamaError && (
                   <pre className="mt-1.5 max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-destructive">
                     {config.llamaError}

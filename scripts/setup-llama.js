@@ -55,15 +55,38 @@ function formatBytes(bytes) {
 // Backend detection
 // ---------------------------------------------------------------------------
 
+function normalizeBackend(value) {
+  const backend = String(value || '').toLowerCase();
+  if (backend === 'gpu') {
+    return process.platform === 'darwin' ? 'metal' : 'vulkan';
+  }
+  if (process.platform === 'darwin' && backend === 'vulkan') return 'metal';
+  return backend || 'auto';
+}
+
 function requestedBackend() {
   const inline = process.argv.find((a) => a.startsWith('--backend='));
-  if (inline) return inline.split('=')[1];
+  if (inline) return normalizeBackend(inline.split('=')[1]);
   if (process.argv.includes('--cpu')) return 'cpu';
   if (process.argv.includes('--vulkan') || process.argv.includes('--gpu')) {
-    return 'vulkan';
+    return normalizeBackend('gpu');
   }
   if (process.argv.includes('--metal')) return 'metal';
-  return process.env.LIBREHARNES_LLAMA_BACKEND || 'auto';
+  return normalizeBackend(process.env.LIBREHARNES_LLAMA_BACKEND || 'auto');
+}
+
+/** True when the user explicitly picked CPU/GPU instead of relying on auto. */
+function explicitBackend() {
+  return (
+    process.argv.some(
+      (a) =>
+        a === '--cpu' ||
+        a === '--vulkan' ||
+        a === '--gpu' ||
+        a === '--metal' ||
+        a.startsWith('--backend='),
+    ) || Boolean(process.env.LIBREHARNES_LLAMA_BACKEND)
+  );
 }
 
 function gpuNames() {
@@ -119,10 +142,20 @@ function detectBackend() {
   return 'cpu';
 }
 
+function validateBackend(backend) {
+  if (backend === 'metal' && process.platform !== 'darwin') {
+    throw new Error('Metal is only available on macOS. Use --gpu or --cpu instead.');
+  }
+  if (!['cpu', 'vulkan', 'metal'].includes(backend)) {
+    throw new Error('Unknown backend: ' + backend);
+  }
+  return backend;
+}
+
 function resolveBackend() {
   const requested = requestedBackend();
-  if (requested && requested !== 'auto') return requested;
-  return detectBackend();
+  const backend = requested && requested !== 'auto' ? requested : detectBackend();
+  return validateBackend(backend);
 }
 
 function assetPattern(tag, backend) {
@@ -284,7 +317,7 @@ function writeMarker(backend) {
 }
 
 /** Seed config.json with hardware-friendly defaults without clobbering users. */
-function updateConfig(backend) {
+function updateConfig(backend, explicit = false) {
   let cfg = {};
   try {
     cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
@@ -292,8 +325,16 @@ function updateConfig(backend) {
     cfg = {};
   }
   cfg.llamaBackend = backend;
-  if (cfg.gpuLayers === undefined) cfg.gpuLayers = backend === 'cpu' ? 0 : 99;
-  if (cfg.flashAttention === undefined) cfg.flashAttention = true;
+  // When the user explicitly chose CPU or GPU, make the runtime match that
+  // choice. Otherwise only fill in a missing value so custom settings survive.
+  if (explicit || cfg.gpuLayers === undefined) {
+    cfg.gpuLayers = backend === 'cpu' ? 0 : 99;
+  }
+  if (explicit) {
+    cfg.flashAttention = backend !== 'cpu';
+  } else if (cfg.flashAttention === undefined) {
+    cfg.flashAttention = true;
+  }
   // Vision models need a larger context; keep threads at physical cores.
   if (cfg.contextSize === undefined) cfg.contextSize = 8192;
   if (cfg.maxTokens === undefined) cfg.maxTokens = 2048;
@@ -314,32 +355,65 @@ function describeGpu() {
   return names ? names.split(/\r?\n/).join(', ') : '(no GPU detected)';
 }
 
+/** Best-effort check that the installed GPU build can see a device. */
+function probeBackend(backend) {
+  if (backend === 'cpu') {
+    log('CPU-only build ready.');
+    return;
+  }
+  const result = spawnSync(SERVER_PATH, ['--list-devices'], {
+    timeout: 20000,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  const output = ((result.stdout || '') + (result.stderr || '')).trim();
+  if (result.status !== 0 || !output) {
+    log('Note: could not query GPU devices with llama-server --list-devices.');
+    return;
+  }
+  const wanted = backend === 'metal' ? /metal/i : /vulkan/i;
+  if (wanted.test(output)) {
+    log('GPU backend ready.');
+  } else {
+    log(
+      'Warning: llama.cpp did not report a ' +
+        (backend === 'metal' ? 'Metal' : 'Vulkan') +
+        ' device. Loading a model will fall back to the CPU automatically.',
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 async function main() {
   const backend = resolveBackend();
+  const explicit = explicitBackend();
   log(`Detected hardware: ${describeGpu()}`);
-  log(`llama.cpp backend: ${backend}`);
+  log(`llama.cpp backend: ${backend}${explicit ? ' (selected)' : ' (auto)'}`);
 
   if (!assetPattern('TAG', backend)) {
     throw new Error('Unsupported platform: ' + process.platform + '/' + process.arch);
   }
 
+  const hasServer = fs.existsSync(SERVER_PATH);
   const current = installedBackend();
-  const needsUpgrade =
-    backend === 'vulkan' && fs.existsSync(SERVER_PATH) && current !== 'vulkan';
+  // Reinstall when switching between CPU and GPU. If the marker is missing
+  // (older install) and the user explicitly picked a backend, reinstall so the
+  // binary actually matches the choice.
+  const needsReinstall = hasServer && (current ? current !== backend : explicit);
 
-  if (fs.existsSync(SERVER_PATH) && !FORCE && !needsUpgrade) {
+  if (hasServer && !FORCE && !needsReinstall) {
     log('llama.cpp is already installed at ' + SERVER_PATH);
     if (current !== backend) writeMarker(backend);
-    updateConfig(backend);
+    updateConfig(backend, explicit);
+    probeBackend(backend);
     log('Use --force to reinstall.');
     return;
   }
 
-  if (needsUpgrade) {
+  if (needsReinstall) {
     log(
-      `Existing install is "${current || 'cpu/unknown'}"; upgrading to Vulkan for GPU acceleration…`,
+      `Existing install is "${current || 'unknown'}"; switching to the ${backend} build…`,
     );
   }
 
@@ -368,7 +442,7 @@ async function main() {
       throw new Error('llama-server was not found in the downloaded archive.');
     }
     writeMarker(backend);
-    updateConfig(backend);
+    updateConfig(backend, explicit);
     log('Installed llama-server at ' + SERVER_PATH);
     const check = spawnSync(SERVER_PATH, ['--version'], {
       timeout: 20000,
@@ -380,6 +454,7 @@ async function main() {
     } else {
       log('Note: could not run llama-server --version, but the binary was installed.');
     }
+    probeBackend(backend);
   } finally {
     try {
       fs.rmSync(temp, { recursive: true, force: true });

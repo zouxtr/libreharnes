@@ -5,7 +5,8 @@
 # Environment:
 #   LIBREHARNES_DIR   install directory (default: %LOCALAPPDATA%\LibreHarnes)
 #   LIBREHARNES_SKIP_LLAMA=1   do not download llama.cpp
-#   LIBREHARNES_LLAMA_BACKEND=auto|vulkan|cpu   llama.cpp build to install
+#   LIBREHARNES_LLAMA_BACKEND=cpu|gpu|auto|vulkan|metal
+#                              choose the llama.cpp build without prompting
 
 $ErrorActionPreference = "Stop"
 
@@ -19,6 +20,17 @@ if ($env:LIBREHARNES_DIR) {
 
 function Write-Step($Message) { Write-Host $Message }
 function Fail($Message) { Write-Error $Message; exit 1 }
+
+function Read-Choice($Prompt, $Default) {
+  if (-not [Environment]::UserInteractive) { return "" }
+  try {
+    $answer = Read-Host $Prompt
+    if ([string]::IsNullOrWhiteSpace($answer)) { return $Default }
+    return $answer.Trim()
+  } catch {
+    return ""
+  }
+}
 
 Write-Host ""
 Write-Host "LibreHarnes installer"
@@ -65,18 +77,51 @@ try {
   }
   Write-Step "Installed app files to $InstallDir"
 
-  if ($env:LIBREHARNES_SKIP_LLAMA -ne "1") {
+  $LlamaBackend = ""
+  if ($env:LIBREHARNES_SKIP_LLAMA -eq "1") {
+    Write-Step "Skipping llama.cpp download (LIBREHARNES_SKIP_LLAMA=1)."
+  } elseif ($env:LIBREHARNES_LLAMA_BACKEND) {
+    $LlamaBackend = $env:LIBREHARNES_LLAMA_BACKEND.ToLower()
+    if ($LlamaBackend -notin @("auto", "cpu", "gpu", "vulkan", "metal")) {
+      Fail "LIBREHARNES_LLAMA_BACKEND must be auto, cpu, gpu, vulkan, or metal."
+    }
+  } else {
+    $installAnswer = Read-Choice "Install the llama.cpp runtime now? [Y/n]" "y"
+    if ($installAnswer -eq "") {
+      Write-Step ""
+      Write-Step "No terminal available to ask about llama.cpp, so it was skipped."
+      Write-Step "Re-run interactively, or set LIBREHARNES_LLAMA_BACKEND=cpu|gpu."
+    } elseif ($installAnswer -match '^(n|no)$') {
+      Write-Step "Skipping llama.cpp. You can install it later with:"
+      Write-Step "  cd `"$InstallDir`" ; node scripts/setup-llama.js"
+    } else {
+      $choice = Read-Choice "Which build? 1) CPU only  2) GPU optimised (Vulkan) [2]" "2"
+      if ($choice -match '^(1|cpu)') {
+        $LlamaBackend = "cpu"
+      } else {
+        $LlamaBackend = "gpu"
+      }
+    }
+  }
+
+  if ($LlamaBackend) {
     Write-Step ""
-    Write-Step "Installing llama.cpp (GPU auto-detect: Vulkan when available)…"
+    if ($LlamaBackend -eq "cpu") {
+      Write-Step "Installing llama.cpp (CPU only)…"
+    } elseif ($LlamaBackend -eq "gpu") {
+      Write-Step "Installing llama.cpp (GPU optimised)…"
+    } else {
+      Write-Step "Installing llama.cpp ($LlamaBackend)…"
+    }
     Push-Location $InstallDir
     try {
-      & node scripts/setup-llama.js
+      $setupArgs = @()
+      if ($LlamaBackend -ne "auto") { $setupArgs += "--$LlamaBackend" }
+      & node scripts/setup-llama.js @setupArgs
       if ($LASTEXITCODE -ne 0) { Fail "llama.cpp setup failed." }
     } finally {
       Pop-Location
     }
-  } else {
-    Write-Step "Skipping llama.cpp download (LIBREHARNES_SKIP_LLAMA=1)."
   }
 
   $CmdLauncher = Join-Path $InstallDir "libreharnes.cmd"
