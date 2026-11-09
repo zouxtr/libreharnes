@@ -13,7 +13,6 @@ import {
   X,
   Paperclip,
   FileText,
-  Brain,
   Star,
   Eye,
 } from "lucide-react";
@@ -206,7 +205,7 @@ export function ChatPage({
   const [effortMenu, setEffortMenu] = React.useState(false);
   const [attachments, setAttachments] = React.useState<ChatAttachment[]>([]);
   const [uploading, setUploading] = React.useState(false);
-  const [showThinking, setShowThinking] = React.useState(() => {
+  const [showThinking] = React.useState(() => {
     try {
       return localStorage.getItem("lh.showThinking") === "1";
     } catch {
@@ -229,14 +228,6 @@ export function ChatPage({
     () => setEffortMenu(false),
     effortMenu,
   );
-
-  React.useEffect(() => {
-    try {
-      localStorage.setItem("lh.showThinking", showThinking ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
-  }, [showThinking]);
 
   // Load the selected conversation.
   React.useEffect(() => {
@@ -854,23 +845,6 @@ export function ChatPage({
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowThinking((v) => !v)}
-            className={cn(
-              "btn btn-ghost btn-sm gap-1.5",
-              showThinking && "bg-accent text-foreground",
-            )}
-            title={
-              showThinking
-                ? "Thinking blocks are expanded by default"
-                : "Show model thinking by default"
-            }
-            aria-pressed={showThinking}
-          >
-            <Brain className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Thinking</span>
-          </button>
           <button
             type="button"
             onClick={() => void handleRegenerate()}
