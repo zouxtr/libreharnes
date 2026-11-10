@@ -171,7 +171,7 @@ conversation.
 ### Tools
 Enable or disable built-in tools and run them manually:
 
-- Web search (DuckDuckGo Lite, no key required)
+- Web search (DuckDuckGo Lite by default; Brave or Tavily when an API key is configured)
 - HTML page reading
 - Sandboxed file listing / reading / creation in `sandbox/`
 

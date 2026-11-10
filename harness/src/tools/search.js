@@ -2,7 +2,7 @@
 
 // Web search tool.
 // DuckDuckGo Lite (no API key required) as the default backend.
-// Brave Search is supported when an API key is provided in config.
+// Brave Search and Tavily are supported when an API key is provided in config.
 
 const fetch = globalThis.fetch;
 
@@ -91,7 +91,67 @@ function braveSearch(query, key) {
     });
 }
 
-function search(query, { engine = 'ddg', braveKey } = {}) {
+// Tavily: POST https://api.tavily.com/search with the key as a Bearer token.
+// Errors come back as {"detail":{"error":"..."}} or a FastAPI validation array.
+function describeTavilyError(text) {
+  try {
+    const body = JSON.parse(text);
+    const detail = body && body.detail;
+    if (detail && typeof detail.error === 'string') return detail.error;
+    if (Array.isArray(detail)) {
+      const msgs = detail.map(e => e && e.msg).filter(Boolean);
+      if (msgs.length) return msgs.join('; ');
+    }
+  } catch (e) { /* not JSON, fall through */ }
+  return text.slice(0, 200);
+}
+
+function tavilySearch(query, key) {
+  return fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + key,
+    },
+    body: JSON.stringify({ query, max_results: 5 }),
+  })
+    .then(res =>
+      res.text().then(text => {
+        if (!res.ok) {
+          throw new Error(
+            'Tavily search failed (' + res.status + '): ' + describeTavilyError(text),
+          );
+        }
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          throw new Error('Tavily search returned invalid JSON');
+        }
+      }),
+    )
+    .then(data => {
+      const results = [];
+      for (const item of (data.results || [])) {
+        results.push({
+          title: item.title || '',
+          url: item.url || '',
+          snippet: item.content || '',
+        });
+      }
+      return results;
+    });
+}
+
+function search(query, { engine = 'ddg', braveKey, tavilyKey } = {}) {
+  if (engine === 'tavily') {
+    if (!tavilyKey) {
+      return Promise.reject(
+        new Error('Tavily API key not configured. Add it on the Tools page, or use engine "ddg".'),
+      );
+    }
+    return tavilySearch(query, tavilyKey).then(list => ({ engine: 'tavily', query, results: list }));
+  }
   if (engine === 'brave' && braveKey) {
     return braveSearch(query, braveKey).then(list => ({ engine: 'brave', query, results: list }));
   }

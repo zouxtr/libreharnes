@@ -21,7 +21,7 @@ const { list: fsList, read: fsRead, create: fsCreate } = require('./tools/fs');
 
 // Tool name -> handler
 const TOOLS = {
-  web_search: ({ query, engine, braveKey }) => search(query, { engine, braveKey }),
+  web_search: ({ query, engine, braveKey, tavilyKey }) => search(query, { engine, braveKey, tavilyKey }),
   read_html: ({ url, maxChars }) => readHtml(url, { maxChars }),
   list_files: () => fsList(),
   read_file: ({ path: p }) => fsRead(p),
@@ -34,12 +34,12 @@ const TOOL_SCHEMA = [
     type: 'function',
     function: {
       name: 'web_search',
-      description: 'Search the web using DuckDuckGo (default) or Brave (if key configured).',
+      description: 'Search the web using DuckDuckGo (default), Brave or Tavily. API-backed engines are used when their key is configured.',
       parameters: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'Search query' },
-          engine: { type: 'string', enum: ['ddg', 'brave'], description: 'Search engine' },
+          engine: { type: 'string', enum: ['ddg', 'brave', 'tavily'], description: 'Search engine' },
           braveKey: { type: 'string', description: 'Brave API key (only needed for brave engine)' },
         },
         required: ['query'],
@@ -441,8 +441,13 @@ function authHeaders(key) {
 async function executeTool(name, args) {
   const handler = TOOLS[name];
   if (!handler) return { error: 'Unknown tool: ' + name };
+  const callArgs = { ...(args || {}) };
+  // The Tavily key lives in config, never in the tool schema sent to the model.
+  if (name === 'web_search' && !callArgs.tavilyKey) {
+    callArgs.tavilyKey = load().tavilyKey || '';
+  }
   try {
-    return await handler(args || {});
+    return await handler(callArgs);
   } catch (err) {
     return { error: err.message };
   }

@@ -63,6 +63,8 @@ const DEFAULTS = {
   activeEndpoint: 'local',
   // API key for the local llama-server (optional)
   localApiKey: '',
+  // Tavily API key for the web_search tool (optional)
+  tavilyKey: '',
   // Temperature / top_p defaults
   temperature: 0.7,
   topP: 0.95,

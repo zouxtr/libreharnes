@@ -21,6 +21,8 @@ export interface Config {
   activeEndpoint: string;
   endpoints: Endpoint[];
   localApiKey: boolean;
+  /** True when a Tavily API key is stored for the web_search tool. */
+  hasTavilyKey: boolean;
   hasLocalModel: boolean;
   llamaServer: string;
   llamaBackend: "auto" | "vulkan" | "cpu" | "metal";

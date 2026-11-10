@@ -51,7 +51,7 @@ function defaultArgs(name: string): Record<string, string> {
 }
 
 export function ToolsPage() {
-  const { toast } = useHarness();
+  const { toast, config, refreshConfig } = useHarness();
   const [tools, setTools] = React.useState<ToolInfo[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -61,6 +61,8 @@ export function ToolsPage() {
   );
   const [running, setRunning] = React.useState<string | null>(null);
   const [results, setResults] = React.useState<Record<string, string>>({});
+  const [tavilyKey, setTavilyKey] = React.useState("");
+  const [savingKey, setSavingKey] = React.useState(false);
 
   const load = React.useCallback(async () => {
     try {
@@ -117,6 +119,22 @@ export function ToolsPage() {
       }));
     } finally {
       setRunning(null);
+    }
+  };
+
+  const saveTavilyKey = async () => {
+    const key = tavilyKey.trim();
+    if (!key) return;
+    setSavingKey(true);
+    try {
+      await api.saveConfig({ tavilyKey: key });
+      await refreshConfig();
+      setTavilyKey("");
+      toast("Tavily API key saved", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setSavingKey(false);
     }
   };
 
@@ -231,44 +249,80 @@ export function ToolsPage() {
                     <div className="border-t border-border bg-background/40 px-3.5 py-3">
                       <div className="space-y-2">
                         {tool.name === "web_search" && (
-                          <div className="grid gap-2 sm:grid-cols-[1fr_120px]">
-                            <div>
-                              <label className="label">Query</label>
-                              <input
-                                value={toolArgs.query || ""}
-                                onChange={(e) =>
-                                  setArgs((prev) => ({
-                                    ...prev,
-                                    [tool.name]: {
-                                      ...toolArgs,
-                                      query: e.target.value,
-                                    },
-                                  }))
-                                }
-                                placeholder="llama.cpp release notes"
-                                className="input mt-1"
-                              />
+                          <>
+                            <div className="grid gap-2 sm:grid-cols-[1fr_120px]">
+                              <div>
+                                <label className="label">Query</label>
+                                <input
+                                  value={toolArgs.query || ""}
+                                  onChange={(e) =>
+                                    setArgs((prev) => ({
+                                      ...prev,
+                                      [tool.name]: {
+                                        ...toolArgs,
+                                        query: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  placeholder="llama.cpp release notes"
+                                  className="input mt-1"
+                                />
+                              </div>
+                              <div>
+                                <label className="label">Engine</label>
+                                <select
+                                  value={toolArgs.engine || "ddg"}
+                                  onChange={(e) =>
+                                    setArgs((prev) => ({
+                                      ...prev,
+                                      [tool.name]: {
+                                        ...toolArgs,
+                                        engine: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  className="input mt-1"
+                                >
+                                  <option value="ddg">DuckDuckGo</option>
+                                  <option value="brave">Brave</option>
+                                  <option value="tavily">Tavily</option>
+                                </select>
+                              </div>
                             </div>
-                            <div>
-                              <label className="label">Engine</label>
-                              <select
-                                value={toolArgs.engine || "ddg"}
-                                onChange={(e) =>
-                                  setArgs((prev) => ({
-                                    ...prev,
-                                    [tool.name]: {
-                                      ...toolArgs,
-                                      engine: e.target.value,
-                                    },
-                                  }))
-                                }
-                                className="input mt-1"
-                              >
-                                <option value="ddg">DuckDuckGo</option>
-                                <option value="brave">Brave</option>
-                              </select>
-                            </div>
-                          </div>
+                            {toolArgs.engine === "tavily" && (
+                              <div>
+                                <label className="label">Tavily API key</label>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="password"
+                                    value={tavilyKey}
+                                    onChange={(e) => setTavilyKey(e.target.value)}
+                                    placeholder={
+                                      config?.hasTavilyKey ? "••••••••" : "tvly-…"
+                                    }
+                                    className="input flex-1"
+                                  />
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline btn-sm"
+                                    onClick={() => void saveTavilyKey()}
+                                    disabled={!tavilyKey.trim() || savingKey}
+                                  >
+                                    {savingKey ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      "Save key"
+                                    )}
+                                  </button>
+                                </div>
+                                <p className="mt-1 text-[11.5px] text-muted-foreground">
+                                  {config?.hasTavilyKey
+                                    ? "A key is stored in config.json. Type a new one to replace it."
+                                    : "Stored in config.json and sent to api.tavily.com. Get a key at app.tavily.com."}
+                                </p>
+                              </div>
+                            )}
+                          </>
                         )}
 
                         {tool.name === "read_html" && (
