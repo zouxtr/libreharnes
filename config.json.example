@@ -12,7 +12,9 @@
   "threads": 6,
   "activeEndpoint": "local",
   "localApiKey": "",
+  "braveKey": "",
   "tavilyKey": "",
+  "searchPriority": ["tavily", "brave", "ddg"],
   "temperature": 0.7,
   "topP": 0.95,
   "endpoints": [

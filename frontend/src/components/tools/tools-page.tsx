@@ -9,6 +9,7 @@ import {
   Play,
   Loader2,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   AlertCircle,
   X,
@@ -35,10 +36,16 @@ const LABELS: Record<string, string> = {
   create_file: "Create file",
 };
 
+const SEARCH_LABELS: Record<string, string> = {
+  tavily: "Tavily",
+  brave: "Brave",
+  ddg: "DuckDuckGo",
+};
+
 function defaultArgs(name: string): Record<string, string> {
   switch (name) {
     case "web_search":
-      return { query: "", engine: "ddg" };
+      return { query: "", engine: "auto" };
     case "read_html":
       return { url: "" };
     case "read_file":
@@ -61,8 +68,8 @@ export function ToolsPage() {
   );
   const [running, setRunning] = React.useState<string | null>(null);
   const [results, setResults] = React.useState<Record<string, string>>({});
-  const [tavilyKey, setTavilyKey] = React.useState("");
-  const [savingKey, setSavingKey] = React.useState(false);
+  const [keyDrafts, setKeyDrafts] = React.useState({ brave: "", tavily: "" });
+  const [savingKey, setSavingKey] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     try {
@@ -122,19 +129,41 @@ export function ToolsPage() {
     }
   };
 
-  const saveTavilyKey = async () => {
-    const key = tavilyKey.trim();
-    if (!key) return;
-    setSavingKey(true);
+  const priority = config?.searchPriority || ["tavily", "brave", "ddg"];
+
+  const keyStatus = (provider: string) => {
+    if (provider === "ddg") return "no key needed";
+    const has =
+      provider === "tavily" ? config?.hasTavilyKey : config?.hasBraveKey;
+    return has ? "key set" : "no key";
+  };
+
+  const saveProviderKey = async (provider: "brave" | "tavily") => {
+    const value = keyDrafts[provider].trim();
+    if (!value) return;
+    setSavingKey(provider);
     try {
-      await api.saveConfig({ tavilyKey: key });
+      await api.saveConfig({ [provider + "Key"]: value });
       await refreshConfig();
-      setTavilyKey("");
-      toast("Tavily API key saved", "success");
+      setKeyDrafts((prev) => ({ ...prev, [provider]: "" }));
+      toast(`${SEARCH_LABELS[provider]} API key saved`, "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     } finally {
-      setSavingKey(false);
+      setSavingKey(null);
+    }
+  };
+
+  const moveProvider = async (index: number, dir: -1 | 1) => {
+    const next = [...priority];
+    const target = index + dir;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    try {
+      await api.saveConfig({ searchPriority: next });
+      await refreshConfig();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
     }
   };
 
@@ -250,7 +279,7 @@ export function ToolsPage() {
                       <div className="space-y-2">
                         {tool.name === "web_search" && (
                           <>
-                            <div className="grid gap-2 sm:grid-cols-[1fr_120px]">
+                            <div className="grid gap-2 sm:grid-cols-[1fr_150px]">
                               <div>
                                 <label className="label">Query</label>
                                 <input
@@ -271,7 +300,7 @@ export function ToolsPage() {
                               <div>
                                 <label className="label">Engine</label>
                                 <select
-                                  value={toolArgs.engine || "ddg"}
+                                  value={toolArgs.engine || "auto"}
                                   onChange={(e) =>
                                     setArgs((prev) => ({
                                       ...prev,
@@ -283,20 +312,109 @@ export function ToolsPage() {
                                   }
                                   className="input mt-1"
                                 >
+                                  <option value="auto">Automatic</option>
                                   <option value="ddg">DuckDuckGo</option>
                                   <option value="brave">Brave</option>
                                   <option value="tavily">Tavily</option>
                                 </select>
                               </div>
                             </div>
-                            {toolArgs.engine === "tavily" && (
+
+                            <div>
+                              <label className="label">Provider priority</label>
+                              <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+                                {SEARCH_LABELS[priority[0]] || priority[0]} is used
+                                first; the next provider is tried when it has no
+                                key, fails or returns nothing.
+                              </p>
+                              <div className="mt-1.5 space-y-1">
+                                {priority.map((name, i) => (
+                                  <div
+                                    key={name}
+                                    className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5"
+                                  >
+                                    <span className="w-3 text-[11px] text-muted-foreground">
+                                      {i + 1}
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">
+                                      {SEARCH_LABELS[name] || name}
+                                    </span>
+                                    <span className="badge">{keyStatus(name)}</span>
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost btn-icon h-6 w-6"
+                                      onClick={() => void moveProvider(i, -1)}
+                                      disabled={i === 0}
+                                      aria-label={`Move ${SEARCH_LABELS[name] || name} up`}
+                                    >
+                                      <ChevronUp className="h-3 w-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost btn-icon h-6 w-6"
+                                      onClick={() => void moveProvider(i, 1)}
+                                      disabled={i === priority.length - 1}
+                                      aria-label={`Move ${SEARCH_LABELS[name] || name} down`}
+                                    >
+                                      <ChevronDown className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="space-y-2 pt-1">
+                              <div>
+                                <label className="label">Brave API key</label>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="password"
+                                    value={keyDrafts.brave}
+                                    onChange={(e) =>
+                                      setKeyDrafts((prev) => ({
+                                        ...prev,
+                                        brave: e.target.value,
+                                      }))
+                                    }
+                                    placeholder={
+                                      config?.hasBraveKey ? "••••••••" : "…"
+                                    }
+                                    className="input flex-1"
+                                  />
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline btn-sm"
+                                    onClick={() => void saveProviderKey("brave")}
+                                    disabled={
+                                      !keyDrafts.brave.trim() ||
+                                      savingKey !== null
+                                    }
+                                  >
+                                    {savingKey === "brave" ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      "Save key"
+                                    )}
+                                  </button>
+                                </div>
+                                <p className="mt-1 text-[11.5px] text-muted-foreground">
+                                  {config?.hasBraveKey
+                                    ? "A key is stored in config.json. Type a new one to replace it."
+                                    : "Optional. Get a key at brave.com/search/api."}
+                                </p>
+                              </div>
                               <div>
                                 <label className="label">Tavily API key</label>
                                 <div className="flex gap-2">
                                   <input
                                     type="password"
-                                    value={tavilyKey}
-                                    onChange={(e) => setTavilyKey(e.target.value)}
+                                    value={keyDrafts.tavily}
+                                    onChange={(e) =>
+                                      setKeyDrafts((prev) => ({
+                                        ...prev,
+                                        tavily: e.target.value,
+                                      }))
+                                    }
                                     placeholder={
                                       config?.hasTavilyKey ? "••••••••" : "tvly-…"
                                     }
@@ -305,10 +423,13 @@ export function ToolsPage() {
                                   <button
                                     type="button"
                                     className="btn btn-outline btn-sm"
-                                    onClick={() => void saveTavilyKey()}
-                                    disabled={!tavilyKey.trim() || savingKey}
+                                    onClick={() => void saveProviderKey("tavily")}
+                                    disabled={
+                                      !keyDrafts.tavily.trim() ||
+                                      savingKey !== null
+                                    }
                                   >
-                                    {savingKey ? (
+                                    {savingKey === "tavily" ? (
                                       <Loader2 className="h-3 w-3 animate-spin" />
                                     ) : (
                                       "Save key"
@@ -318,10 +439,10 @@ export function ToolsPage() {
                                 <p className="mt-1 text-[11.5px] text-muted-foreground">
                                   {config?.hasTavilyKey
                                     ? "A key is stored in config.json. Type a new one to replace it."
-                                    : "Stored in config.json and sent to api.tavily.com. Get a key at app.tavily.com."}
+                                    : "Optional. Stored in config.json and sent to api.tavily.com. Get a key at app.tavily.com."}
                                 </p>
                               </div>
-                            )}
+                            </div>
                           </>
                         )}
 

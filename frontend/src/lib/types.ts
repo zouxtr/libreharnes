@@ -23,6 +23,10 @@ export interface Config {
   localApiKey: boolean;
   /** True when a Tavily API key is stored for the web_search tool. */
   hasTavilyKey: boolean;
+  /** True when a Brave Search API key is stored for the web_search tool. */
+  hasBraveKey: boolean;
+  /** Order web_search tries search providers in (first one wins). */
+  searchPriority: string[];
   hasLocalModel: boolean;
   llamaServer: string;
   llamaBackend: "auto" | "vulkan" | "cpu" | "metal";

@@ -249,6 +249,8 @@ function configResponse() {
     endpoints: cfg.endpoints || [],
     localApiKey: !!cfg.localApiKey,
     hasTavilyKey: !!cfg.tavilyKey,
+    hasBraveKey: !!cfg.braveKey,
+    searchPriority: cfg.searchPriority,
     hasLocalModel: Boolean(cfg.model && fs.existsSync(resolveModelPath(cfg.model))),
     llamaServer: cfg.llamaServer,
     llamaBackend: cfg.llamaBackend || 'auto',

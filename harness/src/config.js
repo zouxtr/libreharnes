@@ -63,8 +63,12 @@ const DEFAULTS = {
   activeEndpoint: 'local',
   // API key for the local llama-server (optional)
   localApiKey: '',
-  // Tavily API key for the web_search tool (optional)
+  // Search API keys for the web_search tool (optional)
+  braveKey: '',
   tavilyKey: '',
+  // Order web_search tries providers in: first configured one wins,
+  // falling back to the next when it fails or has no key.
+  searchPriority: ['tavily', 'brave', 'ddg'],
   // Temperature / top_p defaults
   temperature: 0.7,
   topP: 0.95,
@@ -84,6 +88,25 @@ function ensureDirs() {
   if (!fs.existsSync(MODELS_DIR)) fs.mkdirSync(MODELS_DIR, { recursive: true });
   if (!fs.existsSync(SANDBOX_DIR)) fs.mkdirSync(SANDBOX_DIR, { recursive: true });
   if (!fs.existsSync(CHATS_DIR)) fs.mkdirSync(CHATS_DIR, { recursive: true });
+}
+
+const SEARCH_PROVIDERS = ['tavily', 'brave', 'ddg'];
+
+// Every known provider stays in the list, deduplicated and in the order the
+// user chose, so a hand-edited config can never drop one silently.
+function normalizeSearchPriority(list) {
+  const seen = new Set();
+  const out = [];
+  for (const name of (Array.isArray(list) ? list : [])) {
+    if (SEARCH_PROVIDERS.includes(name) && !seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+    }
+  }
+  for (const name of SEARCH_PROVIDERS) {
+    if (!out.includes(name)) out.push(name);
+  }
+  return out;
 }
 
 function load() {
@@ -137,6 +160,7 @@ function load() {
     }
   }
   cfg.mmproj = '';
+  cfg.searchPriority = normalizeSearchPriority(cfg.searchPriority);
   return cfg;
 }
 
@@ -152,6 +176,7 @@ function save(cfg) {
     ...DEFAULTS,
     ...cfg,
     modelProjectors,
+    searchPriority: normalizeSearchPriority(cfg.searchPriority),
     toolsEnabled: { ...DEFAULT_TOOLS, ...(cfg.toolsEnabled || {}) },
     starredModels: Array.isArray(cfg.starredModels)
       ? [...new Set(cfg.starredModels.filter(n => typeof n === 'string'))]

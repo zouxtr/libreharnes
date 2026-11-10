@@ -21,7 +21,8 @@ const { list: fsList, read: fsRead, create: fsCreate } = require('./tools/fs');
 
 // Tool name -> handler
 const TOOLS = {
-  web_search: ({ query, engine, braveKey, tavilyKey }) => search(query, { engine, braveKey, tavilyKey }),
+  web_search: ({ query, engine, braveKey, tavilyKey, priority }) =>
+    search(query, { engine, braveKey, tavilyKey, priority }),
   read_html: ({ url, maxChars }) => readHtml(url, { maxChars }),
   list_files: () => fsList(),
   read_file: ({ path: p }) => fsRead(p),
@@ -34,12 +35,12 @@ const TOOL_SCHEMA = [
     type: 'function',
     function: {
       name: 'web_search',
-      description: 'Search the web using DuckDuckGo (default), Brave or Tavily. API-backed engines are used when their key is configured.',
+      description: 'Search the web. Uses the configured provider priority and falls back to the next provider on failure.',
       parameters: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'Search query' },
-          engine: { type: 'string', enum: ['ddg', 'brave', 'tavily'], description: 'Search engine' },
+          engine: { type: 'string', enum: ['auto', 'ddg', 'brave', 'tavily'], description: 'Force one provider; omit for the configured priority order' },
           braveKey: { type: 'string', description: 'Brave API key (only needed for brave engine)' },
         },
         required: ['query'],
@@ -442,9 +443,13 @@ async function executeTool(name, args) {
   const handler = TOOLS[name];
   if (!handler) return { error: 'Unknown tool: ' + name };
   const callArgs = { ...(args || {}) };
-  // The Tavily key lives in config, never in the tool schema sent to the model.
-  if (name === 'web_search' && !callArgs.tavilyKey) {
-    callArgs.tavilyKey = load().tavilyKey || '';
+  // Search credentials and provider order live in config and are never part
+  // of the tool schema sent to the model.
+  if (name === 'web_search') {
+    const cfg = load();
+    callArgs.braveKey = callArgs.braveKey || cfg.braveKey || '';
+    callArgs.tavilyKey = callArgs.tavilyKey || cfg.tavilyKey || '';
+    callArgs.priority = cfg.searchPriority;
   }
   try {
     return await handler(callArgs);

@@ -143,19 +143,87 @@ function tavilySearch(query, key) {
     });
 }
 
-function search(query, { engine = 'ddg', braveKey, tavilyKey } = {}) {
-  if (engine === 'tavily') {
-    if (!tavilyKey) {
-      return Promise.reject(
-        new Error('Tavily API key not configured. Add it on the Tools page, or use engine "ddg".'),
+// Each backend the user can order. ddg needs no key; the API ones are
+// skipped when their key is missing.
+const PROVIDERS = {
+  tavily: { label: 'Tavily', needsKey: true, run: (query, key) => tavilySearch(query, key) },
+  brave: { label: 'Brave', needsKey: true, run: (query, key) => braveSearch(query, key) },
+  ddg: { label: 'DuckDuckGo', needsKey: false, run: query => ddgLite(query) },
+};
+
+// Used when the config holds no usable priority list.
+const DEFAULT_PRIORITY = ['tavily', 'brave', 'ddg'];
+
+function normalizePriority(list) {
+  const seen = new Set();
+  const out = [];
+  for (const name of (Array.isArray(list) ? list : [])) {
+    if (PROVIDERS[name] && !seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+    }
+  }
+  return out.length ? out : [...DEFAULT_PRIORITY];
+}
+
+/**
+ * Run a web search.
+ *
+ * engine 'auto' (default) walks the configured priority list in order and
+ * falls back to the next provider whenever one fails or returns nothing.
+ * A specific engine forces exactly that provider and errors clearly when
+ * its key is missing, instead of silently using another one.
+ */
+async function search(query, { engine = 'auto', braveKey, tavilyKey, priority } = {}) {
+  const keys = { braveKey, tavilyKey };
+  let candidates;
+
+  if (engine && engine !== 'auto') {
+    const def = PROVIDERS[engine];
+    if (!def) throw new Error('Unknown search engine: ' + engine);
+    if (def.needsKey && !keys[engine + 'Key']) {
+      throw new Error(
+        def.label + ' API key not configured. Add it on the Tools page, or use engine "auto".',
       );
     }
-    return tavilySearch(query, tavilyKey).then(list => ({ engine: 'tavily', query, results: list }));
+    candidates = [engine];
+  } else {
+    candidates = normalizePriority(priority);
   }
-  if (engine === 'brave' && braveKey) {
-    return braveSearch(query, braveKey).then(list => ({ engine: 'brave', query, results: list }));
+
+  // Reasons a higher-priority provider was passed over, reported to the
+  // caller so a broken key never fails silently.
+  const notes = [];
+  let emptyResult = null;
+
+  for (const name of candidates) {
+    const def = PROVIDERS[name];
+    if (def.needsKey && !keys[name + 'Key']) continue;
+    let results;
+    try {
+      results = await def.run(query, keys[name + 'Key']);
+    } catch (err) {
+      notes.push(name + ': ' + err.message);
+      continue;
+    }
+    if (results.length) {
+      const out = { engine: name, query, results };
+      if (notes.length) out.warnings = notes;
+      return out;
+    }
+    notes.push(name + ': no results');
+    if (!emptyResult) emptyResult = { engine: name, query, results: [] };
   }
-  return ddgLite(query).then(list => ({ engine: 'ddg', query, results: list }));
+
+  if (emptyResult) {
+    emptyResult.warnings = notes;
+    return emptyResult;
+  }
+  throw new Error(
+    notes.length
+      ? 'All search providers failed — ' + notes.join(' | ')
+      : 'No search provider is available. Configure an API key, or add DuckDuckGo to the priority on the Tools page.',
+  );
 }
 
 module.exports = { search };

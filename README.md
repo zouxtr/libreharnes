@@ -171,7 +171,9 @@ conversation.
 ### Tools
 Enable or disable built-in tools and run them manually:
 
-- Web search (DuckDuckGo Lite by default; Brave or Tavily when an API key is configured)
+- Web search with a configurable provider priority (Tavily, Brave,
+  DuckDuckGo): the first provider with a key is used and the next one is
+  tried when it fails
 - HTML page reading
 - Sandboxed file listing / reading / creation in `sandbox/`
 
