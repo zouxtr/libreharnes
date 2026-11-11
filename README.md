@@ -135,15 +135,23 @@ server (`http://127.0.0.1:3030` by default). From there you can:
 
 - **Open LibreHarnes** in your browser.
 - **Copy the link** for another browser or device.
+- **Open from other devices on this network**: switch the server from
+  `127.0.0.1` to `0.0.0.0` so phones and other machines on your LAN can open
+  it at the address shown (for example `http://192.168.1.20:3030`). It is off
+  by default; while it is on, anyone on that network can reach the UI and the
+  API, so only enable it on networks you trust. The setting is remembered in
+  `config.json` and the server re-binds without restarting.
 - **Stop server & quit** to shut everything down.
+
+The same toggle appears on the browser launcher page (`/launcher`).
 
 The app itself has four pages:
 
 ### Chat
 Streaming chat with local GGUF models. When a model emits reasoning, a
-collapsible **Thinking** block appears above the answer; use the **Thinking**
-toggle in the chat toolbar to keep thinking expanded by default. Tool calls
-show their name, arguments, and result in an expandable block.
+collapsible **Thinking** block appears above the answer: it stays open while
+the model reasons and tucks away once the answer starts streaming in. Tool
+calls show their name, arguments, and result in an expandable block.
 
 Use the paperclip button in the composer to attach files. Text files are sent
 to the model inline; other files are saved under `sandbox/uploads/` and their

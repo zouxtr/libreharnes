@@ -2,10 +2,12 @@
 """Small native GTK launcher window for LibreHarnes.
 
 Shows the address of the running app, lets the user open it, copy the link,
-or stop the server. Falls back to the browser launcher page when GTK is not
-available (handled by scripts/launch.js).
+toggle access from other devices on the same network, or stop the server.
+Falls back to the browser launcher page when GTK is not available (handled
+by scripts/launch.js).
 """
 
+import json
 import sys
 import urllib.request
 import webbrowser
@@ -31,12 +33,32 @@ APP_URL = normalize_url(sys.argv[1] if len(sys.argv) > 1 else "")
 BASE_URL = APP_URL.rstrip("/")
 
 
-def server_ok() -> bool:
+def fetch_config():
     try:
         with urllib.request.urlopen(BASE_URL + "/api/config", timeout=1.2) as res:
-            return res.status == 200
+            if res.status != 200:
+                return None
+            return json.loads(res.read().decode("utf-8"))
     except Exception:
-        return False
+        return None
+
+
+def server_ok() -> bool:
+    return fetch_config() is not None
+
+
+def post_host(host: str):
+    try:
+        req = urllib.request.Request(
+            BASE_URL + "/api/config",
+            data=json.dumps({"host": host}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=3) as res:
+            return json.loads(res.read().decode("utf-8"))
+    except Exception:
+        return None
 
 
 def shutdown_server() -> None:
@@ -124,6 +146,10 @@ class Launcher(Gtk.Application):
         self.dot = None
         self.copy_button = None
         self.open_button = None
+        self.link_label = None
+        self.lan_switch = None
+        self.lan_url = None
+        self._syncing = False
 
     def do_activate(self):
         if self.window:
@@ -140,7 +166,7 @@ class Launcher(Gtk.Application):
 
         win = Gtk.ApplicationWindow(application=self)
         win.set_title("LibreHarnes")
-        win.set_default_size(430, 270)
+        win.set_default_size(430, 340)
         win.set_resizable(False)
         win.add_css_class("lh-window")
         win.connect("close-request", self.on_close)
@@ -181,13 +207,34 @@ class Launcher(Gtk.Application):
 
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         card.add_css_class("lh-card")
-        link = Gtk.Label(label=APP_URL)
-        link.add_css_class("lh-link")
-        link.set_xalign(0)
-        link.set_selectable(True)
-        link.set_ellipsize(3)  # Pango.EllipsizeMode.END
-        card.append(link)
+        self.link_label = Gtk.Label(label=APP_URL)
+        self.link_label.add_css_class("lh-link")
+        self.link_label.set_xalign(0)
+        self.link_label.set_selectable(True)
+        self.link_label.set_ellipsize(3)  # Pango.EllipsizeMode.END
+        card.append(self.link_label)
         outer.append(card)
+
+        lan_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        lan_label = Gtk.Label(label="Open from other devices on this network")
+        lan_label.add_css_class("lh-status")
+        lan_label.set_xalign(0)
+        lan_label.set_hexpand(True)
+        self.lan_switch = Gtk.Switch()
+        self.lan_switch.set_valign(Gtk.Align.CENTER)
+        self.lan_switch.connect("state-set", self.on_lan_toggle)
+        lan_row.append(lan_label)
+        lan_row.append(self.lan_switch)
+        outer.append(lan_row)
+
+        lan_hint = Gtk.Label(
+            label="When on, anyone on your network can open LibreHarnes at "
+            "the address above."
+        )
+        lan_hint.add_css_class("lh-subtitle")
+        lan_hint.set_xalign(0)
+        lan_hint.set_ellipsize(3)
+        outer.append(lan_hint)
 
         actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.open_button = Gtk.Button(label="Open LibreHarnes")
@@ -214,28 +261,71 @@ class Launcher(Gtk.Application):
         self.update_status()
         GLib.timeout_add_seconds(3, self.update_status)
 
+    def current_url(self) -> str:
+        if (
+            self.lan_switch is not None
+            and self.lan_switch.get_active()
+            and self.lan_url
+        ):
+            return self.lan_url
+        return APP_URL
+
+    def apply_lan_state(self, cfg) -> None:
+        enabled = cfg.get("host") == "0.0.0.0"
+        lan = cfg.get("lanUrl")
+        if lan:
+            self.lan_url = lan
+        if self.lan_switch is not None and self.lan_switch.get_active() != enabled:
+            self._syncing = True
+            self.lan_switch.set_active(enabled)
+            self._syncing = False
+        if self.link_label is not None:
+            self.link_label.set_text(self.current_url())
+
+    def refresh_once(self):
+        self.update_status()
+        return False
+
     def update_status(self):
         if not self.window:
             return False
-        ok = server_ok()
+        cfg = fetch_config()
+        ok = cfg is not None
+        if ok:
+            self.apply_lan_state(cfg)
         if self.status_label is not None:
             self.status_label.set_text(
-                "Server running at " + APP_URL if ok else "Server is not responding"
+                "Server running at " + self.current_url()
+                if ok
+                else "Server is not responding"
             )
         if self.dot is not None:
             self.dot.set_text("●")
             self.dot.set_opacity(1.0 if ok else 0.4)
         return True
 
+    def on_lan_toggle(self, switch, state):
+        if self._syncing:
+            return True
+        cfg = post_host("0.0.0.0" if state else "127.0.0.1")
+        if cfg is None:
+            return False  # keep the previous switch state
+        self.apply_lan_state(cfg)
+        if self.status_label is not None:
+            self.status_label.set_text("Server running at " + self.current_url())
+        # The server re-binds a moment after replying; check back once.
+        GLib.timeout_add(900, self.refresh_once)
+        return True
+
     def on_open(self, _button):
-        webbrowser.open(APP_URL)
+        webbrowser.open(self.current_url())
 
     def on_copy(self, _button):
         display = Gdk.Display.get_default()
         if display is None:
             return
         clipboard = display.get_clipboard()
-        clipboard.set(APP_URL)
+        clipboard.set(self.current_url())
         if self.copy_button is not None:
             self.copy_button.set_label("Copied")
             GLib.timeout_add(

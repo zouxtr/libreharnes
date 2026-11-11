@@ -128,6 +128,68 @@
         font-size: 11.5px;
         color: var(--fg);
       }
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      .toggle-text {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .toggle-title {
+        font-size: 12px;
+        color: var(--fg);
+      }
+      .toggle-hint {
+        font-size: 10.5px;
+        color: var(--muted);
+      }
+      #lanToggle {
+        appearance: none;
+        -webkit-appearance: none;
+        flex: none;
+        width: 34px;
+        height: 20px;
+        margin: 0;
+        position: relative;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--bg);
+        cursor: pointer;
+        transition:
+          background 120ms ease,
+          border-color 120ms ease;
+      }
+      #lanToggle::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        background: var(--muted);
+        transition:
+          transform 120ms ease,
+          background 120ms ease;
+      }
+      #lanToggle:checked {
+        background: color-mix(in srgb, var(--success) 25%, transparent);
+        border-color: var(--success);
+      }
+      #lanToggle:checked::after {
+        transform: translateX(14px);
+        background: var(--success);
+      }
+      #lanToggle:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--fg) 40%, transparent);
+        outline-offset: 2px;
+      }
       .actions {
         display: flex;
         gap: 8px;
@@ -214,6 +276,21 @@
         <code id="appUrl">http://127.0.0.1:3030/</code>
       </div>
 
+      <div class="toggle-row">
+        <div class="toggle-text">
+          <span class="toggle-title">Open from other devices on this network</span>
+          <span class="toggle-hint" id="lanHint">
+            Off — only this computer can open LibreHarnes
+          </span>
+        </div>
+        <input
+          type="checkbox"
+          id="lanToggle"
+          role="switch"
+          aria-label="Open from other devices on this network"
+        />
+      </div>
+
       <div class="actions">
         <a class="btn primary" id="openLink" href="/">Open LibreHarnes</a>
         <button type="button" id="copyBtn" title="Copy the address">
@@ -234,7 +311,7 @@
     </main>
 
     <script>
-      const url = window.location.origin + "/";
+      const localUrl = window.location.origin + "/";
       const appUrl = document.getElementById("appUrl");
       const openLink = document.getElementById("openLink");
       const dot = document.getElementById("dot");
@@ -242,15 +319,38 @@
       const copyBtn = document.getElementById("copyBtn");
       const stopBtn = document.getElementById("stopBtn");
       const card = document.getElementById("card");
+      const lanToggle = document.getElementById("lanToggle");
+      const lanHint = document.getElementById("lanHint");
 
-      appUrl.textContent = url;
-      openLink.href = url;
+      let lanOn = false;
+      let lanUrl = null;
+      let lanPending = false;
+
+      function activeUrl() {
+        return lanOn && lanUrl ? lanUrl : localUrl;
+      }
+
+      function renderUrl() {
+        appUrl.textContent = activeUrl();
+        openLink.href = activeUrl();
+        lanHint.textContent = lanOn
+          ? "On — anyone on your network can open this address"
+          : "Off — only this computer can open LibreHarnes";
+      }
 
       async function check() {
         try {
           const res = await fetch("/api/config", { cache: "no-store" });
           if (!res.ok) throw new Error("bad status");
           const cfg = await res.json();
+          // While a toggle request is in flight the stored host is still the
+          // old one; don't let the poll fight the switch.
+          if (!lanPending) {
+            lanUrl = typeof cfg.lanUrl === "string" ? cfg.lanUrl : null;
+            lanOn = cfg.host === "0.0.0.0";
+            if (lanToggle.checked !== lanOn) lanToggle.checked = lanOn;
+            renderUrl();
+          }
           dot.classList.remove("off");
           statusText.textContent = cfg.model
             ? "Server running · " +
@@ -264,13 +364,39 @@
         }
       }
 
+      lanToggle.addEventListener("change", async () => {
+        const want = lanToggle.checked;
+        lanToggle.disabled = true;
+        lanPending = true;
+        try {
+          const res = await fetch("/api/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ host: want ? "0.0.0.0" : "127.0.0.1" }),
+          });
+          if (!res.ok) throw new Error("bad status");
+          const data = await res.json().catch(() => null);
+          lanOn = want;
+          const reported = data && data.config && data.config.lanUrl;
+          if (typeof reported === "string" && reported) lanUrl = reported;
+          renderUrl();
+        } catch {
+          lanToggle.checked = !want; // keep the previous state
+        } finally {
+          lanPending = false;
+          lanToggle.disabled = false;
+        }
+        // The server re-binds a moment after replying; check back once.
+        setTimeout(check, 900);
+      });
+
       copyBtn.addEventListener("click", async () => {
         try {
-          await navigator.clipboard.writeText(url);
+          await navigator.clipboard.writeText(activeUrl());
           copyBtn.textContent = "Copied";
           setTimeout(() => (copyBtn.textContent = "Copy link"), 1400);
         } catch {
-          appUrl.textContent = url;
+          appUrl.textContent = activeUrl();
         }
       });
 

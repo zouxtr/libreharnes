@@ -236,11 +236,29 @@ function systemInfo() {
 // API
 // ---------------------------------------------------------------------------
 
+// First non-internal IPv4 address — the address other devices on the same
+// network use to reach this machine.
+function lanAddress() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name] || []) {
+      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+    }
+  }
+  return null;
+}
+
+function lanUrl() {
+  const lan = lanAddress();
+  return lan ? 'http://' + lan + ':' + PORT + '/' : null;
+}
+
 function configResponse() {
   const status = llamaStatus();
   return {
     port: cfg.port,
     host: cfg.host,
+    lanUrl: lanUrl(),
     model: cfg.model,
     contextSize: cfg.contextSize,
     threads: cfg.threads,
@@ -309,6 +327,7 @@ async function handle(req, res) {
     if (pathname === '/api/config' && req.method === 'POST') {
       const body = await readJson(req);
       const oldModel = cfg.model;
+      const oldHost = cfg.host;
       const oldCtx = cfg.contextSize;
       const oldThreads = cfg.threads;
       const oldPort = cfg.llamaPort;
@@ -369,7 +388,11 @@ async function handle(req, res) {
       ) {
         stopLlama();
       }
-      return send(res, 200, { ok: true, config: configResponse() });
+      const result = send(res, 200, { ok: true, config: configResponse() });
+      // A host change (the launcher's LAN toggle) needs a re-bind. Give the
+      // response time to flush before dropping the listener.
+      if (cfg.host !== oldHost) setTimeout(rebindHost, 250);
+      return result;
     }
 
     // ---- System / status ----
@@ -1042,6 +1065,35 @@ async function handle(req, res) {
 }
 
 const server = http.createServer(handle);
+
+// Re-bind after the host setting changes so the LAN toggle takes effect
+// without restarting the process. Idle connections are dropped immediately;
+// long-lived ones (a streaming reply) get three seconds to finish before
+// they are forced closed, otherwise the re-bind would hang.
+let rebinding = false;
+function rebindHost() {
+  if (rebinding) return;
+  const wanted = cfg.host || '127.0.0.1';
+  const address = server.address();
+  if (address && address.address === wanted) return;
+  rebinding = true;
+  console.log('[server] rebinding to ' + wanted);
+  const force = setTimeout(() => {
+    if (!server.listening && typeof server.closeAllConnections === 'function') {
+      server.closeAllConnections();
+    }
+  }, 3000);
+  if (typeof server.closeIdleConnections === 'function') {
+    server.closeIdleConnections();
+  }
+  server.close(() => {
+    clearTimeout(force);
+    server.listen(PORT, wanted, () => {
+      rebinding = false;
+      console.log('LibreHarnes listening on http://' + wanted + ':' + PORT);
+    });
+  });
+}
 
 server.listen(PORT, HOST, () => {
   console.log('LibreHarnes listening on http://' + HOST + ':' + PORT);
